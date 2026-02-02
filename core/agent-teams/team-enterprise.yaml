@@ -1,0 +1,17 @@
+# <!-- Powered by AIgile™ Core -->
+bundle:
+  name: Team Enterprise
+  icon: 🏢
+  description: Enterprise-focused team specializing in Jira/Confluence workflows, SonarQube quality gates, and GitHub/GitLab integration. Optimized for corporate development environments.
+agents:
+  - aigile-orchestrator
+  - po
+  - dev
+  - qa
+  - architect
+  - pm
+workflows:
+  # Enterprise integration workflows
+  # - enterprise-feature-delivery.yaml
+  # - hotspot-remediation.yaml
+  # - architecture-review.yaml

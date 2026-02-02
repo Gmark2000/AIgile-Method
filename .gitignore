@@ -1,0 +1,13 @@
+# Node/IDE
+node_modules/
+.DS_Store
+.vscode/
+.idea/
+.env
+.env.*
+
+# Build/Artifacts
+build/
+dist/
+.ai/
+flattened-codebase.xml

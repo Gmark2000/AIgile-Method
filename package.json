@@ -1,0 +1,57 @@
+{
+  "name": "@mark-gozner/aigile-method",
+  "version": "0.4.5",
+  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents, handoffs, and subagent delegation",
+  "private": false,
+  "license": "SEE LICENSE",
+  "bin": {
+    "aigile": "tools/cli.js",
+    "aigile-method": "tools/cli.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "bundle": "node tools/cli.js bundle",
+    "build": "node tools/cli.js bundle",
+    "validate": "node tools/cli.js bundle && node tools/validate-bundles.js",
+    "prepublishOnly": "npm run build",
+    "pack:dry-run": "npm pack --dry-run",
+    "release:patch": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish",
+    "list:agents": "node -e \"const fs=require('fs'); const p=require('path'); const d=p.join('core','agents'); console.log('Available agents:'); if(fs.existsSync(d)) for(const f of fs.readdirSync(d)) if(f.endsWith('.md')) console.log('  - '+f.replace(/\\.md$/, ''));\"",
+    "install:aigile": "node tools/cli.js install",
+    "postinstall": "node tools/postinstall.js",
+    "aigile:install": "aigile-method install --yes",
+    "aigile:bundle": "aigile-method bundle",
+    "aigile:status": "aigile-method status",
+    "aigile:list": "aigile-method list:agents"
+  },
+  "keywords": [
+    "agentic",
+    "agile",
+    "ai",
+    "mcp",
+    "bmad-inspired"
+  ],
+  "author": "Mark Gozner",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mark-gozner/aigile-method.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "core/",
+    "docs/",
+    "mcp/",
+    "tools/",
+    "dist/",
+    "LICENSE*",
+    "README.md",
+    "package.json"
+  ]
+}

@@ -1,0 +1,124 @@
+servers:
+  atlassian:
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - -e
+      - CONFLUENCE_URL
+      - -e
+      - CONFLUENCE_PERSONAL_TOKEN
+      - -e
+      - CONFLUENCE_SSL_VERIFY
+      - -e
+      - JIRA_URL
+      - -e
+      - JIRA_PERSONAL_TOKEN
+      - -e
+      - JIRA_SSL_VERIFY
+      - -e
+      - READ_ONLY_MODE
+      - ghcr.io/sooperset/mcp-atlassian:latest
+    env:
+      CONFLUENCE_URL: https://your-company.atlassian.net/wiki
+      CONFLUENCE_PERSONAL_TOKEN: ${input:confluence_personal_access_token}
+      CONFLUENCE_SSL_VERIFY: "true"
+      JIRA_URL: https://your-company.atlassian.net
+      JIRA_PERSONAL_TOKEN: ${input:jira_personal_access_token}
+      JIRA_SSL_VERIFY: "true"
+      READ_ONLY_MODE: "true"
+
+  github.com:
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - -e
+      - GITHUB_PERSONAL_ACCESS_TOKEN
+      - -e
+      - GITHUB_DYNAMIC_TOOLSETS
+      - ghcr.io/github/github-mcp-server
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${input:github_com_personal_access_token}
+      GITHUB_DYNAMIC_TOOLSETS: "1"
+
+  # GitHub Enterprise example (uncomment and configure for your enterprise GitHub)
+  # github-enterprise:
+  #   command: docker
+  #   args:
+  #     - run
+  #     - -i
+  #     - --rm
+  #     - -e
+  #     - GITHUB_HOST
+  #     - -e
+  #     - GITHUB_PERSONAL_ACCESS_TOKEN
+  #     - -e
+  #     - GITHUB_TOOLSETS
+  #     - ghcr.io/github/github-mcp-server
+  #   env:
+  #     GITHUB_HOST: https://github.your-company.com
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: ${input:github_enterprise_personal_access_token}
+  #     GITHUB_TOOLSETS: context,pull_requests,repos
+
+  # SonarQube example (uncomment and configure for your SonarQube instance)
+  # sonarqube:
+  #   command: docker
+  #   args:
+  #     - run
+  #     - -i
+  #     - --rm
+  #     - -e
+  #     - SONARQUBE_TOKEN
+  #     - -e
+  #     - SONARQUBE_URL
+  #     - mcp/sonarqube
+  #   env:
+  #     SONARQUBE_TOKEN: ${input:sonarqube_personal_token}
+  #     SONARQUBE_URL: https://sonarqube.your-company.com
+
+  playwright:
+    command: npx
+    args:
+      - "@playwright/mcp@latest"
+
+  memory:
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-memory"
+
+  sequentialthinking:
+    # Sequential Thinking MCP: helps plan and structure multi-step tasks
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-sequential-thinking"
+    env:
+      SEQUENTIAL_THINKING_MAX_STEPS: "8"
+
+  context7:
+    # Context7 MCP: knowledge base search and grounding
+    command: npx
+    args:
+      - -y
+      - "@upstash/context7-mcp"
+    env:
+      CONTEXT7_API_KEY: ${input:context7_api_key}
+      CONTEXT7_DEFAULT_KB: general
+
+inputs:
+  - id: github_com_personal_access_token
+    type: promptString
+    description: github.com Personal Access Token
+  - id: confluence_personal_access_token
+    type: promptString
+    description: Confluence Personal Access Token
+  - id: jira_personal_access_token
+    type: promptString
+    description: Jira Personal Access Token
+  - id: context7_api_key
+    type: promptString
+    description: Context7 API key

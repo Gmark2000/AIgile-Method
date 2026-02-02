@@ -1,0 +1,24 @@
+# <!-- Powered by AIgile™ Core -->
+bundle:
+  name: Team All
+  icon: 👥
+  description: Complete AIgile team with orchestrator and all specialist agents. Ideal for comprehensive enterprise development with full workflow coordination.
+agents:
+  - aigile-orchestrator
+  - aigile-master
+  - analyst
+  - architect
+  - dev
+  - pm
+  - po
+  - qa
+  - sm
+  - ui-expert
+  - ux-expert
+workflows:
+  # Enterprise workflows can be added here when workflow files are created
+  # - enterprise-feature-delivery.yaml
+  # - architecture-review.yaml
+  # - hotspot-remediation.yaml
+  # - test-automation.yaml
+  # - documentation.yaml
