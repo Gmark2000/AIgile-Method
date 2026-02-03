@@ -1,0 +1,10 @@
+# <!-- Powered by AIgile™ Core -->
+bundle:
+  name: Team IDE Minimal
+  icon: 💡
+  description: Lightweight team for IDE-focused development with core agents only. Great for individual developers or small teams.
+agents:
+  - aigile-master
+  - dev
+  - qa
+workflows: []

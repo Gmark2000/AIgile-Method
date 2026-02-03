@@ -1,0 +1,34 @@
+name: Validate Package
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies (if any)
+        run: npm install --ignore-scripts
+      
+      - name: Validate bundles
+        run: npm run validate
+      
+      - name: Dry-run package
+        run: npm pack --dry-run
+      
+      - name: Check package size
+        run: |
+          SIZE=$(npm pack --dry-run 2>&1 | grep -oP 'package size:\s*\K[0-9.]+\s*[kKmMgG]?B' || echo "Size check skipped")
+          echo "Package size: $SIZE"
