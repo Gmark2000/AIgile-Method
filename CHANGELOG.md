@@ -6,6 +6,16 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-02-09
+### Fixed
+- **Tool Naming Format**: Reverted tool names back to required `prefix/toolName` format (e.g., `read/readFile`, `search/codebase`, `execute/runInTerminal`)
+  - VS Code requires the prefixed format in agent `tools:` arrays; simple names cause "has been renamed" errors
+  - Updated all 4 native `.agent.md` files (orchestrator, dev, code-tour, react-frontend)
+  - Updated `FULL_AGENT_TOOLS` in both `cli.js` and `installer/lib/ide-setup.js`
+  - Updated orchestrator tool list in both `cli.js` and `ide-setup.js`
+  - MCP server wildcards (`atlassian/*`, `context7/*`, etc.) remain unchanged
+  - Deprecated tool removals from v1.0.2 preserved (`vscode/switchAgent`, `vscode/memory`, etc.)
+
 ## [1.0.2] - 2026-02-09
 ### Changed
 - **Tools Modernization**: Migrated all agent tool lists from deprecated `prefix/toolName` format to new VS Code simple names and tool sets

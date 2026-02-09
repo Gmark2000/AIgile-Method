@@ -3,20 +3,30 @@ import fs from 'fs-extra';
 
 /**
  * Full tool list for all agents (except orchestrator)
- * Uses new VS Code tool naming: simple names, tool sets, and MCP wildcards
+ * Uses VS Code prefix/toolName format and MCP wildcards
  */
 const FULL_AGENT_TOOLS = [
-  // Tool sets (groups of related tools)
-  'edit',           // createDirectory, createFile, editFiles, editNotebook, newJupyterNotebook
-  'search',         // changes, codebase, fileSearch, listDirectory, searchResults, textSearch, usages
-  'runCommands',    // getTerminalOutput, runInTerminal, terminalLastCommand, terminalSelection
-  'runTasks',       // createAndRunTask, getTaskOutput, runTask
-  'runNotebooks',   // getNotebookSummary, readNotebookCellOutput, runCell, editNotebook
-  // Individual built-in tools
-  'extensions', 'getProjectSetupInfo', 'installExtension', 'newWorkspace',
-  'openSimpleBrowser', 'runVscodeCommand', 'VSCodeAPI',
-  'problems', 'readFile', 'runSubagent', 'runTests', 'testFailure',
-  'fetch', 'githubRepo', 'selection', 'todos',
+  // vscode tools
+  'vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension',
+  'vscode/newWorkspace', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/vscodeAPI',
+  // execute tools
+  'execute/getTerminalOutput', 'execute/runTask', 'execute/createAndRunTask',
+  'execute/runInTerminal', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests',
+  // read tools
+  'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput',
+  'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput',
+  // agent tools
+  'agent/runSubagent',
+  // edit tools
+  'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook',
+  'edit/editFiles', 'edit/editNotebook',
+  // search tools
+  'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory',
+  'search/searchResults', 'search/textSearch', 'search/usages',
+  // web tools
+  'web/fetch', 'web/githubRepo',
+  // other built-in
+  'todo',
   // MCP servers (wildcard includes all tools from each server)
   'atlassian/*',
   'context7/*',
@@ -31,7 +41,7 @@ const FULL_AGENT_TOOLS = [
 const AGENT_METADATA = {
   'aigile-orchestrator': {
     description: 'PURE COORDINATOR - I have NO implementation tools. I can ONLY delegate via runSubagent.',
-    tools: ['readFile', 'agent', 'codebase', 'fileSearch', 'textSearch', 'listDirectory', 'sequentialthinking/*'],
+    tools: ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'search/listDirectory', 'sequentialthinking/*'],
     model: 'Claude Opus 4.6',
     handoffs: [
       { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Analyze the architecture and provide recommendations.', send: false },

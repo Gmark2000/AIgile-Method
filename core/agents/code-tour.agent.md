@@ -2,9 +2,7 @@
 description: 'Expert agent for creating and maintaining VSCode CodeTour files with comprehensive schema support and best practices'
 name: 'VSCode Tour Expert'
 tools:
-  ['edit', 'search', 'runCommands', 'runTasks', 'runNotebooks', 'extensions', 'getProjectSetupInfo', 'installExtension', 'newWorkspace', 'openSimpleBrowser', 'runVscodeCommand', 'VSCodeAPI', 'problems', 'readFile', 'runSubagent', 'runTests', 'testFailure', 'fetch', 'githubRepo', 'selection', 'todos', 'atlassian/*', 'context7/*', 'sequentialthinking/*', 'github.com/*', 'github.vscode-pull-request-github/*']
-model: Claude Opus 4.6
----
+  ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/newWorkspace', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/runTask', 'execute/createAndRunTask', 'execute/runInTerminal', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'web/fetch', 'web/githubRepo', 'todo', 'atlassian/*', 'context7/*', 'sequentialthinking/*', 'github.com/*', 'github.vscode-pull-request-github/*']
 
 # VSCode Tour Expert 🗺️
 

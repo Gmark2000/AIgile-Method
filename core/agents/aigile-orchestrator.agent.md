@@ -3,7 +3,7 @@ name: AIgile Orchestrator
 description: "Intelligent coordinator with full tool access - orchestrates specialist agents and can perform direct actions when needed."
 argument-hint: "Describe your goal and I'll coordinate the specialist agents"
 tools:
-  ['readFile', 'agent', 'codebase', 'fileSearch', 'textSearch', 'listDirectory', 'sequentialthinking/*']
+  ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'search/listDirectory', 'sequentialthinking/*']
 model: Claude Opus 4.6
 user-invokable: true
 disable-model-invocation: true

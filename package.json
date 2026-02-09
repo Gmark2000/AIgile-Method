@@ -1,6 +1,6 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents, handoffs, and subagent delegation",
   "private": false,
   "license": "SEE LICENSE",
