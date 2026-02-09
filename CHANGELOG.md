@@ -6,6 +6,26 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-02-09
+### Changed
+- **Agent Model Upgrade**: Updated all agent models from Claude Opus 4.5 to **Claude Opus 4.6**
+  - `aigile-orchestrator.agent.md`
+  - `dev.agent.md`
+  - `code-tour.agent.md`
+  - `expert-react-frontend-engineer.agent.md`
+- **Agent Frontmatter**: Replaced deprecated `infer: true` with `user-invokable: true` across all agents
+- **Orchestrator**: Added `disable-model-invocation: true` and streamlined tool list
+- **CLI**: Updated `generateCustomAgent()` to emit new model and `user-invokable` frontmatter key
+
+### Removed
+- Deprecated `vscode/switchAgent` and `vscode/memory` tool references from agent configurations
+
+## [1.0.0] - 2026-01-23
+### Added
+- Initial stable release based on v0.3.0
+- NPM publishing workflows and validation
+- Full custom agents support with `.agent.md` format
+
 ## [0.3.0] - 2026-01-23
 ### Added - Custom Agents & Subagent Delegation
 - **New Custom Agents Format**: Migrated from deprecated `.chatmode.md` to new `.agent.md` format
