@@ -1,0 +1,16 @@
+# <!-- Powered by AIgile™ Core -->
+bundle:
+  name: Team Fullstack
+  icon: 🚀
+  description: Full-stack development team with orchestrator, developer, QA, architect, and UX experts. Perfect for complete feature development cycles.
+agents:
+  - aigile-orchestrator
+  - dev
+  - qa
+  - architect
+  - ux-expert
+  - ui-expert
+workflows:
+  # Fullstack workflows
+  # - enterprise-feature-delivery.yaml
+  # - test-automation.yaml

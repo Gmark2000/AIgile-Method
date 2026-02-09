@@ -1,6 +1,6 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "0.4.5",
+  "version": "1.0.0",
   "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents, handoffs, and subagent delegation",
   "private": false,
   "license": "SEE LICENSE",
@@ -34,7 +34,22 @@
     "agile",
     "ai",
     "mcp",
-    "bmad-inspired"
+    "bmad-inspired",
+    "github-copilot",
+    "agents",
+    "custom-agents",
+    "ai-agents",
+    "devops",
+    "project-management",
+    "scrum",
+    "kanban",
+    "testing",
+    "qa",
+    "architecture",
+    "code-review",
+    "workflow-automation",
+    "development-tools",
+    "cli"
   ],
   "author": "Mark Gozner",
   "repository": {

@@ -1,0 +1,38 @@
+{
+  "name": "@mark-gozner/aigile-method",
+  "version": "0.4.5",
+  "installedAt": "2026-02-03T09:51:31.860Z",
+  "format": "agents",
+  "agents": [
+    "aigile-master.md",
+    "aigile-orchestrator.agent.md",
+    "analyst.md",
+    "architect.md",
+    "code-tour.agent.md",
+    "dev.agent.md",
+    "dev.md",
+    "expert-react-frontend-engineer.agent.md",
+    "pm.md",
+    "po.md",
+    "qa.md",
+    "sm.md",
+    "ui-expert.md",
+    "ux-expert.md"
+  ],
+  "customAgents": 13,
+  "chatModes": 0,
+  "prompts": 15,
+  "mcp": {
+    "serversJson": false,
+    "mockSettings": false
+  },
+  "instructions": {
+    "java": false
+  },
+  "features": {
+    "customAgents": true,
+    "handoffs": true,
+    "runSubagent": true,
+    "mcp": false
+  }
+}
