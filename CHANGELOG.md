@@ -6,6 +6,12 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-02-09
+### Fixed
+- **Agent Frontmatter**: Added missing `model:` line and closing `---` delimiter in `dev.agent.md`, `code-tour.agent.md`, and `expert-react-frontend-engineer.agent.md`
+  - Without the closing `---`, markdown body content was parsed as YAML attributes causing VS Code errors
+  - Added missing `handoffs:` key in `dev.agent.md` so handoff entries are properly structured
+
 ## [1.0.3] - 2026-02-09
 ### Fixed
 - **Tool Naming Format**: Reverted tool names back to required `prefix/toolName` format (e.g., `read/readFile`, `search/codebase`, `execute/runInTerminal`)
