@@ -1212,66 +1212,30 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   const metaName = agentMeta.name || title;
   
   // Full tool list for all agents (except orchestrator)
+  // Uses new VS Code tool naming: simple names, tool sets, and MCP wildcards
   const FULL_AGENT_TOOLS = [
-    // VS Code tools
-    'vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/newWorkspace',
-    'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/switchAgent',
-    'vscode/vscodeAPI', 'vscode/memory',
-    // Execute tools
-    'execute/getTerminalOutput', 'execute/runTask', 'execute/createAndRunTask', 'execute/runInTerminal',
-    'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests',
-    // Read tools
-    'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary',
-    'read/problems', 'read/readFile', 'read/readNotebookCellOutput',
-    // Agent tools
-    'agent/runSubagent',
-    // Atlassian MCP tools
-    'atlassian/confluence_get_comments', 'atlassian/confluence_get_labels', 'atlassian/confluence_get_page',
-    'atlassian/confluence_get_page_children', 'atlassian/confluence_search', 'atlassian/confluence_search_user',
-    'atlassian/jira_batch_get_changelogs', 'atlassian/jira_download_attachments', 'atlassian/jira_get_agile_boards',
-    'atlassian/jira_get_all_projects', 'atlassian/jira_get_board_issues', 'atlassian/jira_get_issue',
-    'atlassian/jira_get_link_types', 'atlassian/jira_get_project_issues', 'atlassian/jira_get_project_versions',
-    'atlassian/jira_get_sprint_issues', 'atlassian/jira_get_sprints_from_board', 'atlassian/jira_get_transitions',
-    'atlassian/jira_get_user_profile', 'atlassian/jira_get_worklog', 'atlassian/jira_search', 'atlassian/jira_search_fields',
-    // Context7 MCP
-    'context7/get-library-docs', 'context7/resolve-library-id',
-    // Sequential Thinking MCP
-    'sequentialthinking/sequentialthinking',
-    // Edit tools
-    'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook',
-    'edit/editFiles', 'edit/editNotebook',
-    // Search tools
-    'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory',
-    'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent',
-    // Web tools
-    'web/fetch', 'web/githubRepo',
-    // GitHub MCP
-    'github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/assign_copilot_to_issue',
-    'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request',
-    'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit',
-    'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me',
-    'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams',
-    'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits',
-    'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases',
-    'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read',
-    'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review',
-    'github/search_code', 'github/search_issues', 'github/search_pull_requests',
-    'github/search_repositories', 'github/search_users', 'github/sub_issue_write',
-    'github/update_pull_request', 'github/update_pull_request_branch',
-    // Upstash Context7 MCP
-    'upstash/context7/query-docs', 'upstash/context7/resolve-library-id',
-    // GitHub PR extension tools
-    'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix',
-    'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch',
-    'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest',
-    'github.vscode-pull-request-github/openPullRequest',
-    // Other tools
-    'todo'
+    // Tool sets (groups of related tools)
+    'edit',           // createDirectory, createFile, editFiles, editNotebook, newJupyterNotebook
+    'search',         // changes, codebase, fileSearch, listDirectory, searchResults, textSearch, usages
+    'runCommands',    // getTerminalOutput, runInTerminal, terminalLastCommand, terminalSelection
+    'runTasks',       // createAndRunTask, getTaskOutput, runTask
+    'runNotebooks',   // getNotebookSummary, readNotebookCellOutput, runCell, editNotebook
+    // Individual built-in tools
+    'extensions', 'getProjectSetupInfo', 'installExtension', 'newWorkspace',
+    'openSimpleBrowser', 'runVscodeCommand', 'VSCodeAPI',
+    'problems', 'readFile', 'runSubagent', 'runTests', 'testFailure',
+    'fetch', 'githubRepo', 'selection', 'todos',
+    // MCP servers (wildcard includes all tools from each server)
+    'atlassian/*',
+    'context7/*',
+    'sequentialthinking/*',
+    'github.com/*',
+    'github.vscode-pull-request-github/*'
   ];
 
   // Use full tool list for all agents except orchestrator
   const toolList = agentId === 'aigile-orchestrator' 
-    ? ['agent/runSubagent'] 
+    ? ['readFile', 'agent', 'codebase', 'fileSearch', 'textSearch', 'listDirectory', 'sequentialthinking/*'] 
     : [...new Set([...FULL_AGENT_TOOLS, ...tools])].sort();
   
   // Generate handoffs based on agent role
@@ -1379,41 +1343,41 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
 function generateHandoffsFor(agentId) {
   const handoffMappings = {
     'aigile-orchestrator': [
-      { label: '🏗️ Architecture Review', agent: 'architect', prompt: 'Analyze the architecture and provide recommendations.', send: false },
-      { label: '💻 Start Implementation', agent: 'dev', prompt: 'Implement the plan using test-driven development.', send: false },
-      { label: '🧪 Run QA Gate', agent: 'qa', prompt: 'Review and test the implementation for quality.', send: false },
-      { label: '📋 Refine Backlog', agent: 'po', prompt: 'Refine the backlog items based on discussion.', send: false },
+      { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Analyze the architecture and provide recommendations.', send: false },
+      { label: '💻 Start Implementation', agent: 'Full Stack Developer', prompt: 'Implement the plan using test-driven development.', send: false },
+      { label: '🧪 Run QA Gate', agent: 'Test Architect & Quality Advisor', prompt: 'Review and test the implementation for quality.', send: false },
+      { label: '📋 Refine Backlog', agent: 'Product Owner', prompt: 'Refine the backlog items based on discussion.', send: false },
     ],
     dev: [
-      { label: '🧪 Request QA Review', agent: 'qa', prompt: 'Review the implementation above for quality.', send: false },
-      { label: '🏗️ Architecture Check', agent: 'architect', prompt: 'Verify architecture compliance.', send: false },
+      { label: '🧪 Request QA Review', agent: 'Test Architect & Quality Advisor', prompt: 'Review the implementation above for quality.', send: false },
+      { label: '🏗️ Architecture Check', agent: 'Architect', prompt: 'Verify architecture compliance.', send: false },
     ],
     architect: [
-      { label: '💻 Start Implementation', agent: 'dev', prompt: 'Implement the architecture recommendations.', send: false },
-      { label: '📋 Create Stories', agent: 'po', prompt: 'Create backlog items for architecture changes.', send: false },
+      { label: '💻 Start Implementation', agent: 'Full Stack Developer', prompt: 'Implement the architecture recommendations.', send: false },
+      { label: '📋 Create Stories', agent: 'Product Owner', prompt: 'Create backlog items for architecture changes.', send: false },
     ],
     po: [
-      { label: '💻 Implement Story', agent: 'dev', prompt: 'Implement the story defined above.', send: false },
-      { label: '🧠 Analyze Further', agent: 'analyst', prompt: 'Provide deeper analysis of requirements.', send: false },
+      { label: '💻 Implement Story', agent: 'Full Stack Developer', prompt: 'Implement the story defined above.', send: false },
+      { label: '🧠 Analyze Further', agent: 'Business Analyst', prompt: 'Provide deeper analysis of requirements.', send: false },
     ],
     qa: [
-      { label: '💻 Fix Issues', agent: 'dev', prompt: 'Fix the issues identified in QA review.', send: false },
-      { label: '📋 Update Stories', agent: 'po', prompt: 'Update stories based on QA findings.', send: false },
+      { label: '💻 Fix Issues', agent: 'Full Stack Developer', prompt: 'Fix the issues identified in QA review.', send: false },
+      { label: '📋 Update Stories', agent: 'Product Owner', prompt: 'Update stories based on QA findings.', send: false },
     ],
     analyst: [
-      { label: '📋 Create Stories', agent: 'po', prompt: 'Create stories from analysis findings.', send: false },
-      { label: '🏗️ Architecture Review', agent: 'architect', prompt: 'Review architecture implications.', send: false },
+      { label: '📋 Create Stories', agent: 'Product Owner', prompt: 'Create stories from analysis findings.', send: false },
+      { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Review architecture implications.', send: false },
     ],
     pm: [
-      { label: '📋 Refine Stories', agent: 'po', prompt: 'Refine the stories in the plan.', send: false },
+      { label: '📋 Refine Stories', agent: 'Product Owner', prompt: 'Refine the stories in the plan.', send: false },
     ],
     sm: [],
     'ui-expert': [
-      { label: '💻 Implement UI', agent: 'dev', prompt: 'Implement the UI specifications.', send: false },
+      { label: '💻 Implement UI', agent: 'Full Stack Developer', prompt: 'Implement the UI specifications.', send: false },
     ],
     'ux-expert': [
-      { label: '🖌️ Design System', agent: 'ui-expert', prompt: 'Create design system components.', send: false },
-      { label: '💻 Implement UX', agent: 'dev', prompt: 'Implement the UX recommendations.', send: false },
+      { label: '🖌️ Design System', agent: 'UI Expert', prompt: 'Create design system components.', send: false },
+      { label: '💻 Implement UX', agent: 'Full Stack Developer', prompt: 'Implement the UX recommendations.', send: false },
     ],
   };
   

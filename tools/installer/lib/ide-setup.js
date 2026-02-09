@@ -3,49 +3,26 @@ import fs from 'fs-extra';
 
 /**
  * Full tool list for all agents (except orchestrator)
+ * Uses new VS Code tool naming: simple names, tool sets, and MCP wildcards
  */
 const FULL_AGENT_TOOLS = [
-  // VS Code tools
-  'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/newWorkspace', 
-  'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/vscodeAPI', 'vscode/extensions',
-  // Execute tools
-  'execute/runNotebookCell', 'execute/testFailure', 'execute/getTerminalOutput',
-  'execute/runTask', 'execute/createAndRunTask', 'execute/runInTerminal', 'execute/runTests',
-  // Read tools
-  'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput',
-  'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput',
-  // Agent tools
-  'agent/runSubagent',
-  // Edit tools
-  'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook', 
-  'edit/editFiles', 'edit/editNotebook',
-  // Search tools
-  'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory',
-  'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent',
-  // Web tools
-  'web/fetch', 'web/githubRepo',
-  // Context7 MCP
-  'upstash/context7/query-docs', 'upstash/context7/resolve-library-id',
-  // GitHub MCP
-  'github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/assign_copilot_to_issue',
-  'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request',
-  'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit',
-  'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me',
-  'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams',
-  'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits',
-  'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases',
-  'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read', 
-  'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review',
-  'github/search_code', 'github/search_issues', 'github/search_pull_requests',
-  'github/search_repositories', 'github/search_users', 'github/sub_issue_write',
-  'github/update_pull_request', 'github/update_pull_request_branch',
-  // Other tools
-  'askQuestions', 'todo',
-  // GitHub PR extension tools
-  'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix',
-  'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch',
-  'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest',
-  'github.vscode-pull-request-github/openPullRequest'
+  // Tool sets (groups of related tools)
+  'edit',           // createDirectory, createFile, editFiles, editNotebook, newJupyterNotebook
+  'search',         // changes, codebase, fileSearch, listDirectory, searchResults, textSearch, usages
+  'runCommands',    // getTerminalOutput, runInTerminal, terminalLastCommand, terminalSelection
+  'runTasks',       // createAndRunTask, getTaskOutput, runTask
+  'runNotebooks',   // getNotebookSummary, readNotebookCellOutput, runCell, editNotebook
+  // Individual built-in tools
+  'extensions', 'getProjectSetupInfo', 'installExtension', 'newWorkspace',
+  'openSimpleBrowser', 'runVscodeCommand', 'VSCodeAPI',
+  'problems', 'readFile', 'runSubagent', 'runTests', 'testFailure',
+  'fetch', 'githubRepo', 'selection', 'todos',
+  // MCP servers (wildcard includes all tools from each server)
+  'atlassian/*',
+  'context7/*',
+  'sequentialthinking/*',
+  'github.com/*',
+  'github.vscode-pull-request-github/*'
 ];
 
 /**
@@ -54,101 +31,102 @@ const FULL_AGENT_TOOLS = [
 const AGENT_METADATA = {
   'aigile-orchestrator': {
     description: 'PURE COORDINATOR - I have NO implementation tools. I can ONLY delegate via runSubagent.',
-    tools: ['agent/runSubagent'],
-    model: 'Claude Opus 4.5',
+    tools: ['readFile', 'agent', 'codebase', 'fileSearch', 'textSearch', 'listDirectory', 'sequentialthinking/*'],
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '🏗️ Architecture Review', agent: 'architect', prompt: 'Analyze the architecture and provide recommendations.', send: false },
-      { label: '💻 Start Implementation', agent: 'dev', prompt: 'Implement the plan using test-driven development.', send: false },
-      { label: '🧪 Run QA Gate', agent: 'qa', prompt: 'Review and test the implementation for quality.', send: false },
-      { label: '📋 Refine Backlog', agent: 'po', prompt: 'Refine the backlog items based on discussion.', send: false },
-      { label: '🧠 Analyze Requirements', agent: 'analyst', prompt: 'Analyze requirements and provide breakdown.', send: false },
+      { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Analyze the architecture and provide recommendations.', send: false },
+      { label: '💻 Start Implementation', agent: 'Full Stack Developer', prompt: 'Implement the plan using test-driven development.', send: false },
+      { label: '🧪 Run QA Gate', agent: 'Test Architect & Quality Advisor', prompt: 'Review and test the implementation for quality.', send: false },
+      { label: '📋 Refine Backlog', agent: 'Product Owner', prompt: 'Refine the backlog items based on discussion.', send: false },
+      { label: '🧠 Analyze Requirements', agent: 'Business Analyst', prompt: 'Analyze requirements and provide breakdown.', send: false },
     ],
-    infer: false
+    'user-invokable': true,
+    'disable-model-invocation': true
   },
   'dev': {
     description: 'Full Stack Developer - code implementation, debugging, refactoring, and test-driven development.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '🧪 Request QA Review', agent: 'qa', prompt: 'Review the implementation above for quality.', send: false },
-      { label: '🏗️ Architecture Check', agent: 'architect', prompt: 'Verify architecture compliance.', send: false },
+      { label: '🧪 Request QA Review', agent: 'Test Architect & Quality Advisor', prompt: 'Review the implementation above for quality.', send: false },
+      { label: '🏗️ Architecture Check', agent: 'Architect', prompt: 'Verify architecture compliance.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'architect': {
     description: 'Software Architect - architecture analysis, code review, documentation, and system design.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '💻 Start Implementation', agent: 'dev', prompt: 'Implement the architecture recommendations.', send: false },
-      { label: '📋 Create Stories', agent: 'po', prompt: 'Create backlog items for architecture changes.', send: false },
+      { label: '💻 Start Implementation', agent: 'Full Stack Developer', prompt: 'Implement the architecture recommendations.', send: false },
+      { label: '📋 Create Stories', agent: 'Product Owner', prompt: 'Create backlog items for architecture changes.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'po': {
     description: 'Product Owner - story creation, backlog management, and Jira integration.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '💻 Implement Story', agent: 'dev', prompt: 'Implement the story defined above.', send: false },
-      { label: '🧠 Analyze Further', agent: 'analyst', prompt: 'Provide deeper analysis of requirements.', send: false },
+      { label: '💻 Implement Story', agent: 'Full Stack Developer', prompt: 'Implement the story defined above.', send: false },
+      { label: '🧠 Analyze Further', agent: 'Business Analyst', prompt: 'Provide deeper analysis of requirements.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'qa': {
     description: 'QA Engineer - testing, quality gates, E2E verification, and test automation.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '💻 Fix Issues', agent: 'dev', prompt: 'Fix the issues identified in QA review.', send: false },
-      { label: '📋 Update Stories', agent: 'po', prompt: 'Update stories based on QA findings.', send: false },
+      { label: '💻 Fix Issues', agent: 'Full Stack Developer', prompt: 'Fix the issues identified in QA review.', send: false },
+      { label: '📋 Update Stories', agent: 'Product Owner', prompt: 'Update stories based on QA findings.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'analyst': {
     description: 'Business Analyst - requirements analysis, brainstorming, research, and elicitation.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '📋 Create Stories', agent: 'po', prompt: 'Create stories from analysis findings.', send: false },
-      { label: '🏗️ Architecture Review', agent: 'architect', prompt: 'Review architecture implications.', send: false },
+      { label: '📋 Create Stories', agent: 'Product Owner', prompt: 'Create stories from analysis findings.', send: false },
+      { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Review architecture implications.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'pm': {
     description: 'Project Manager - project planning, backlog sync, PRDs, and roadmap management.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '📋 Refine Stories', agent: 'po', prompt: 'Refine the stories in the plan.', send: false },
+      { label: '📋 Refine Stories', agent: 'Product Owner', prompt: 'Refine the stories in the plan.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'sm': {
     description: 'Scrum Master - sprint ceremonies, standup facilitation, and team coordination.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [],
-    infer: true
+    'user-invokable': true
   },
   'ui-expert': {
     description: 'UI Expert - design system audit, Figma integration, and component specifications.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '💻 Implement UI', agent: 'dev', prompt: 'Implement the UI specifications.', send: false },
+      { label: '💻 Implement UI', agent: 'Full Stack Developer', prompt: 'Implement the UI specifications.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
   'ux-expert': {
     description: 'UX Expert - user experience design, frontend specs, and user journey mapping.',
     tools: FULL_AGENT_TOOLS,
-    model: 'Claude Opus 4.5',
+    model: 'Claude Opus 4.6',
     handoffs: [
-      { label: '🖌️ Design System', agent: 'ui-expert', prompt: 'Create design system components.', send: false },
-      { label: '💻 Implement UX', agent: 'dev', prompt: 'Implement the UX recommendations.', send: false },
+      { label: '🖌️ Design System', agent: 'UI Expert', prompt: 'Create design system components.', send: false },
+      { label: '💻 Implement UX', agent: 'Full Stack Developer', prompt: 'Implement the UX recommendations.', send: false },
     ],
-    infer: true
+    'user-invokable': true
   },
 };
 
@@ -185,9 +163,10 @@ function generateFrontmatter(id, metadata) {
     }
   }
   
-  // Always add model - default to Claude Opus 4.5
-  lines.push(`model: ${metadata.model || 'Claude Opus 4.5'}`);
-  if (metadata.infer !== undefined) lines.push(`infer: ${metadata.infer}`);
+  // Always add model - default to Claude Opus 4.6
+  lines.push(`model: ${metadata.model || 'Claude Opus 4.6'}`);
+  if (metadata['user-invokable'] !== undefined) lines.push(`user-invokable: ${metadata['user-invokable']}`);
+  if (metadata['disable-model-invocation'] !== undefined) lines.push(`disable-model-invocation: ${metadata['disable-model-invocation']}`);
   
   if (metadata.handoffs && metadata.handoffs.length > 0) {
     lines.push('handoffs:');
@@ -237,7 +216,7 @@ export function setupGithubCopilot({ srcAgentsDir, destChatmodesDir, destAgentsD
       description: `Activates the ${id} agent persona (AIgile).`,
       tools: ['search', 'fetch', 'codebase', 'problems'],
       handoffs: [],
-      infer: true
+      'user-invokable': true
     };
     
     const frontmatter = generateFrontmatter(id, metadata);

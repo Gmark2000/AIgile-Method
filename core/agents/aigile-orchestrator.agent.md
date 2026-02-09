@@ -3,29 +3,29 @@ name: AIgile Orchestrator
 description: "Intelligent coordinator with full tool access - orchestrates specialist agents and can perform direct actions when needed."
 argument-hint: "Describe your goal and I'll coordinate the specialist agents"
 tools:
-  ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'sequentialthinking/*']
+  ['readFile', 'agent', 'codebase', 'fileSearch', 'textSearch', 'listDirectory', 'sequentialthinking/*']
 model: Claude Opus 4.6
 user-invokable: true
 disable-model-invocation: true
 handoffs:
   - label: "🏗️ Architecture Review"
-    agent: architect
+    agent: Architect
     prompt: "Analyze the architecture and provide recommendations based on the context above."
     send: false
   - label: "💻 Start Implementation"
-    agent: dev
+    agent: Full Stack Developer
     prompt: "Implement the plan outlined above using test-driven development."
     send: false
   - label: "🧪 Run QA Gate"
-    agent: qa
+    agent: Test Architect & Quality Advisor
     prompt: "Review and test the implementation above for quality and completeness."
     send: false
   - label: "📋 Refine Backlog"
-    agent: po
+    agent: Product Owner
     prompt: "Refine the backlog items based on the discussion above."
     send: false
   - label: "🧠 Analyze Requirements"
-    agent: analyst
+    agent: Business Analyst
     prompt: "Analyze the requirements and provide detailed breakdown."
     send: false
 ---

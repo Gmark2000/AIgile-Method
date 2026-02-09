@@ -6,6 +6,36 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-02-09
+### Changed
+- **Tools Modernization**: Migrated all agent tool lists from deprecated `prefix/toolName` format to new VS Code simple names and tool sets
+  - Replaced 80+ individual tool references with 5 tool sets (`edit`, `search`, `runCommands`, `runTasks`, `runNotebooks`) plus individual tools
+  - Replaced 50+ individual MCP tool references with server wildcards (`atlassian/*`, `github.com/*`, `context7/*`, `sequentialthinking/*`, `github.vscode-pull-request-github/*`)
+  - Added new tools: `selection`, `todos`, `runVscodeCommand`, `VSCodeAPI`
+  - Updated all 4 native `.agent.md` files (orchestrator, dev, code-tour, react-frontend)
+  - Updated `FULL_AGENT_TOOLS` in both `cli.js` and `installer/lib/ide-setup.js`
+  - Updated orchestrator tool list to use new naming
+
+### Fixed
+- **Handoff Agent Names**: Fixed handoff `agent:` values to use exact display names (e.g., `Full Stack Developer` instead of `dev`, `Architect` instead of `architect`)
+  - Updated native `.agent.md` files and CLI `generateHandoffsFor()`
+  - Updated `ide-setup.js` agent metadata and frontmatter generation
+- **Installer**: Updated default model to Claude Opus 4.6, replaced `infer` with `user-invokable`/`disable-model-invocation`
+
+### Removed
+- Deprecated `vscode/switchAgent`, `vscode/memory`, `vscode/askQuestions`, `search/searchSubagent` tool references
+- Deprecated `prefix/toolName` format (e.g., `vscode/extensions` → `extensions`, `execute/runInTerminal` → via `runCommands` tool set)
+- Individual MCP tool enumeration (replaced with `serverName/*` wildcards)
+
+## [1.0.2] - 2026-02-09
+### Fixed
+- **Handoff Agent Names**: Fixed handoff `agent:` values to use exact display names (e.g., `Full Stack Developer` instead of `dev`, `Test Architect & Quality Advisor` instead of `qa`)
+  - Updated `aigile-orchestrator.agent.md`, `dev.agent.md` (native agents)
+  - Updated `generateHandoffsFor()` in `cli.js` (generated agents)
+  - Updated `ide-setup.js` agent metadata and frontmatter generation
+- **Installer Model**: Updated `ide-setup.js` default model from Claude Opus 4.5 to Claude Opus 4.6
+- **Installer Frontmatter**: Replaced deprecated `infer` with `user-invokable` / `disable-model-invocation` in `ide-setup.js`
+
 ## [1.0.1] - 2026-02-09
 ### Changed
 - **Agent Model Upgrade**: Updated all agent models from Claude Opus 4.5 to **Claude Opus 4.6**
