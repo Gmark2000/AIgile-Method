@@ -1288,8 +1288,8 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   for (const t of toolList) {
     fmLines.push(`  - ${t}`);
   }
-  fmLines.push('model: Claude Opus 4.5');
-  fmLines.push('infer: true');
+  fmLines.push('model: Claude Opus 4.6');
+  fmLines.push('user-invokable: true');
   
   if (handoffs.length > 0) {
     fmLines.push('handoffs:');
