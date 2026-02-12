@@ -6,6 +6,14 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-02-12
+### Changed
+- **Repository URL**: Updated GitHub repository URL from `mark-gozner/aigile-method` to `Gmark2000/AIgile-Method` across all project files
+  - Updated `package.json` repository URL
+  - Updated `README.md` clone URL
+  - Updated `.github/workflows/publish.yml` changelog link
+  - Updated `PUBLISHING.md` repository references
+
 ## [1.0.4] - 2026-02-09
 ### Fixed
 - **Agent Frontmatter**: Added missing `model:` line and closing `---` delimiter in `dev.agent.md`, `code-tour.agent.md`, and `expert-react-frontend-engineer.agent.md`

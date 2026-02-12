@@ -120,7 +120,7 @@ These scripts automatically:
    - Copy the token
 
 2. Add to GitHub Secrets:
-   - Go to: https://github.com/mark-gozner/aigile-method/settings/secrets/actions
+   - Go to: https://github.com/Gmark2000/AIgile-Method/settings/secrets/actions
    - Click "New repository secret"
    - Name: `NPM_TOKEN`
    - Value: paste your npm token
@@ -148,7 +148,7 @@ These scripts automatically:
 
 #### Manual Workflow Trigger
 Alternatively, trigger the workflow manually:
-1. Go to: https://github.com/mark-gozner/aigile-method/actions/workflows/publish.yml
+1. Go to: https://github.com/Gmark2000/AIgile-Method/actions/workflows/publish.yml
 2. Click "Run workflow"
 3. Select version type (patch/minor/major)
 4. Click "Run workflow"
@@ -333,4 +333,4 @@ npm view @mark-gozner/aigile-method
 **Package**: `@mark-gozner/aigile-method`  
 **Current Version**: `0.4.5`  
 **License**: Custom (SEE LICENSE)  
-**Repository**: https://github.com/mark-gozner/aigile-method
+**Repository**: https://github.com/Gmark2000/AIgile-Method

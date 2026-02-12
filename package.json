@@ -1,6 +1,6 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents, handoffs, and subagent delegation",
   "private": false,
   "license": "SEE LICENSE",
@@ -54,7 +54,7 @@
   "author": "Mark Gozner",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mark-gozner/aigile-method.git"
+    "url": "https://github.com/Gmark2000/AIgile-Method.git"
   },
   "publishConfig": {
     "access": "public"

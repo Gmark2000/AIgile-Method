@@ -43,7 +43,7 @@ npx @mark-gozner/aigile-method install --yes
 
 ```bash
 # 1) Clone the repository once
-git clone https://github.com/mark-gozner/aigile-method.git ~/aigile-method
+git clone https://github.com/Gmark2000/AIgile-Method.git ~/aigile-method
 
 # 2) In any target project
 cd /path/to/your/project
