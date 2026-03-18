@@ -10,6 +10,8 @@ agents:
   - qa
   - architect
   - pm
+  - devops
+  - security
 workflows:
   # Enterprise integration workflows
   # - enterprise-feature-delivery.yaml

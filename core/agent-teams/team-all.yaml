@@ -15,6 +15,9 @@ agents:
   - sm
   - ui-expert
   - ux-expert
+  - devops
+  - automation-tester
+  - security
 workflows:
   # Enterprise workflows can be added here when workflow files are created
   # - enterprise-feature-delivery.yaml

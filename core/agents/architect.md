@@ -7,6 +7,19 @@ agent:
   title: Architect
   icon: 🏗️
   whenToUse: System/solution architecture, API and infra design
+tools:
+  - search
+  - read
+  - edit
+  - vscode
+  - todo
+  - agent
+  - web
+agents:
+  - Full Stack Developer
+  - Business Analyst
+  - Test Architect & Quality Advisor
+  - Product Owner
 persona:
   role: Holistic System Architect
   style: Principles-first, documentation-driven, pragmatic, scalable

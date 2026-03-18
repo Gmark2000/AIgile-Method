@@ -7,6 +7,20 @@ agent:
   title: Full Stack Developer
   icon: 💻
   whenToUse: Use for code implementation, debugging, refactoring, test design, and developer best practices across the stack
+tools:
+  - edit
+  - execute
+  - search
+  - read
+  - browser
+  - web
+  - vscode
+  - todo
+  - agent
+agents:
+  - Test Architect & Quality Advisor
+  - Architect
+  - Business Analyst
 persona:
   role: Senior Software Engineer focused on small, safe steps and strong tests
   style: Concise, methodical, standards-driven, explains trade-offs

@@ -511,6 +511,19 @@ function listTasksForAgent(agentId) {
     ],
     'ux-expert': [
       'front-end-spec-from-design.md'
+    ],
+    devops: [
+      'execute-checklist.md'
+    ],
+    'automation-tester': [
+      'verify-jira-story-e2e.md',
+      'test-design.md',
+      'execute-checklist.md'
+    ],
+    security: [
+      'code-arch-review-with-github.md',
+      'sonarqube-hotspot-review.md',
+      'execute-checklist.md'
     ]
   };
 
@@ -529,7 +542,14 @@ function generateTurboChatmode({ agentId, agentTitle, agentMd, mcpCatalog, tasks
 function extractAgentMeta(agentMd) {
   const meta = { name: null, title: null, whenToUse: null, persona: {}, corePrinciples: [] };
   const m = agentMd.match(/```ya?ml\r?\n([\s\S]*?)\r?\n```/);
-  if (!m) return meta;
+  if (!m) {
+    // Try unfenced YAML
+    const directRole = agentMd.match(/^\s*role\s*:\s*"?([^"\r\n]+)"?/m);
+    const directTitle = agentMd.match(/^\s*title\s*:\s*"?([^"\r\n]+)"?/m);
+    if (directRole) meta.agentRole = directRole[1].trim();
+    if (directTitle) meta.title = directTitle[1].trim();
+    return meta;
+  }
   const yaml = m[1];
 
   const name = yaml.match(/\bname\s*:\s*(.+)/);
@@ -537,6 +557,8 @@ function extractAgentMeta(agentMd) {
   const wtu = yaml.match(/\bwhenToUse\s*:\s*([\s\S]*?)(?:\r?\n\s*[a-zA-Z_][\w-]*\s*:|$)/);
   if (name) meta.name = name[1].trim();
   if (title) meta.title = title[1].trim();
+  const agentRole = yaml.match(/^\s*role\s*:\s*"?([^"\r\n]+)"?/m);
+  if (agentRole) meta.agentRole = agentRole[1].trim();
   if (wtu) meta.whenToUse = wtu[1].trim().replace(/^\|\s*\r?\n?/, '').replace(/^"|"$/g, '');
 
   // persona fields (best-effort global matches inside YAML block)
@@ -580,7 +602,10 @@ function relevantDependencies(agentId) {
     po: ['story-tmpl.yaml', 'prd-tmpl.yaml'],
     qa: ['qa-gate-tmpl.yaml', 'story-tmpl.yaml'],
     'ui-expert': ['front-end-spec-tmpl.yaml'],
-    'ux-expert': ['front-end-spec-tmpl.yaml']
+    'ux-expert': ['front-end-spec-tmpl.yaml'],
+    devops: [],
+    'automation-tester': ['qa-gate-tmpl.yaml'],
+    security: []
   };
 
   // Agent-specific data file mappings
@@ -595,7 +620,10 @@ function relevantDependencies(agentId) {
   po: ['aigile-kb.md'],
   sm: ['aigile-kb.md'],
   'ui-expert': ['aigile-kb.md'],
-  'ux-expert': ['aigile-kb.md']
+  'ux-expert': ['aigile-kb.md'],
+  devops: ['technical-preferences.md', 'aigile-kb.md'],
+  'automation-tester': ['test-levels-framework.md', 'test-priorities-matrix.md', 'aigile-kb.md'],
+  security: ['technical-preferences.md', 'aigile-kb.md']
   };
 
   // Agent-specific checklist mappings based on role responsibilities
@@ -610,7 +638,10 @@ function relevantDependencies(agentId) {
     qa: ['story-dod-checklist.md'], // Quality validation of completed stories
     sm: [], // Scrum Master focuses on process facilitation, no specific checklists
     'ui-expert': ['story-dod-checklist.md'], // UI deliverables completion
-    'ux-expert': ['story-draft-checklist.md'] // UX requirements and story preparation
+    'ux-expert': ['story-draft-checklist.md'], // UX requirements and story preparation
+    devops: ['change-checklist.md'],
+    'automation-tester': ['story-dod-checklist.md'],
+    security: ['change-checklist.md']
   };
 
   // Handle both ui-expert and ui folder mapping
@@ -1096,7 +1127,14 @@ function generateStructuredChatmode({ agentId, agentMeta, agentMd, tools, tasks,
 
   // Collect tools (dedupe) including MCP tool names so Copilot can expose them when available
   const agentMcpTools = mcpToolsForAgent(agentId);
-  const toolList = Array.from(new Set([...baseTools(), ...tools, ...agentMcpTools])).sort();
+  // Add browser built-in tools for automation-tester only
+  const browserTools = agentId === 'automation-tester' ? [
+    'browser/openBrowserPage', 'browser/readPage', 'browser/screenshotPage',
+    'browser/navigatePage', 'browser/clickElement', 'browser/dragElement',
+    'browser/hoverElement', 'browser/typeInPage', 'browser/runPlaywrightCode',
+    'browser/handleDialog'
+  ] : [];
+  const toolList = Array.from(new Set([...baseTools(), ...tools, ...agentMcpTools, ...browserTools])).sort();
 
   // Front matter: include name & title (BMAD style adds more semantic cues). Copilot currently
   // keyes on description/tools; adding name/title is future-proof and clarifies mode list.
@@ -1206,8 +1244,14 @@ function generateStructuredChatmode({ agentId, agentMeta, agentMd, tools, tasks,
  * Generate a custom agent file (.agent.md) for the new GitHub Copilot custom agents format
  * See: https://code.visualstudio.com/docs/copilot/customization/custom-agents
  */
+function canonicalAgentId(id) {
+  if (id === 'ui') return 'ui-expert';
+  if (id === 'ux') return 'ux-expert';
+  return id;
+}
+
 function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checklists }) {
-  const title = agentMeta.title || toTitleCase(agentId);
+  const title = agentMeta.title || agentMeta.agentRole || toTitleCase(agentId);
   const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
   const metaName = agentMeta.name || title;
   
@@ -1243,10 +1287,19 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     'github.vscode-pull-request-github/*'
   ];
 
+  // Browser built-in tools scoped to automation-tester only
+  const BROWSER_TOOLS = [
+    'browser/openBrowserPage', 'browser/readPage', 'browser/screenshotPage',
+    'browser/navigatePage', 'browser/clickElement', 'browser/dragElement',
+    'browser/hoverElement', 'browser/typeInPage', 'browser/runPlaywrightCode',
+    'browser/handleDialog'
+  ];
+
   // Use full tool list for all agents except orchestrator
+  const agentSpecificTools = agentId === 'automation-tester' ? BROWSER_TOOLS : [];
   const toolList = agentId === 'aigile-orchestrator' 
     ? ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'search/listDirectory', 'sequentialthinking/*'] 
-    : [...new Set([...FULL_AGENT_TOOLS, ...tools])].sort();
+    : [...new Set([...FULL_AGENT_TOOLS, ...agentSpecificTools, ...tools])].sort();
   
   // Generate handoffs based on agent role
   const handoffs = generateHandoffsFor(agentId);
@@ -1301,19 +1354,35 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     body.push(`- ${p}`);
   }
   body.push('');
-  body.push('## Subagent Delegation');
-  body.push('');
-  body.push('Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:');
-  body.push('');
-  body.push('| Agent | Specialty |');
-  body.push('|-------|-----------|');
-  body.push('| `dev` | Code implementation, debugging, TDD |');
-  body.push('| `architect` | Architecture review, documentation |');
-  body.push('| `po` | Story creation, backlog management |');
-  body.push('| `qa` | Testing, quality gates |');
-  body.push('| `analyst` | Requirements analysis |');
-  body.push('| `pm` | Project planning |');
-  body.push('');
+  if (tools && tools.length > 0) {
+    const delegationTargets = [
+      { id: 'dev', label: 'Full Stack Developer', specialty: 'Code implementation, debugging, TDD' },
+      { id: 'architect', label: 'Architect', specialty: 'Architecture review, documentation' },
+      { id: 'po', label: 'Product Owner', specialty: 'Story creation, backlog management' },
+      { id: 'qa', label: 'Test Architect & Quality Advisor', specialty: 'Testing, quality gates' },
+      { id: 'analyst', label: 'Business Analyst', specialty: 'Requirements analysis' },
+      { id: 'pm', label: 'Product Manager', specialty: 'Project planning' },
+      { id: 'sm', label: 'Scrum Master', specialty: 'Scrum facilitation, ceremonies' },
+      { id: 'ui-expert', label: 'UI Expert', specialty: 'UI design, design systems' },
+      { id: 'ux-expert', label: 'UX Expert', specialty: 'UX research, interaction flows' },
+      { id: 'devops', label: 'DevOps Engineer', specialty: 'CI/CD, infrastructure, deployments' },
+      { id: 'automation-tester', label: 'Automation Tester', specialty: 'E2E testing, Playwright, visual regression' },
+      { id: 'security', label: 'Security Engineer', specialty: 'Security review, OWASP, threat modeling' },
+    ];
+    const canonicalId = canonicalAgentId(agentId);
+    body.push('## Subagent Delegation');
+    body.push('');
+    body.push('Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:');
+    body.push('');
+    body.push('| Agent | Specialty |');
+    body.push('|-------|-----------|');
+    for (const t of delegationTargets) {
+      if (t.id !== canonicalId) {
+        body.push(`| \`${t.id}\` | ${t.specialty} |`);
+      }
+    }
+    body.push('');
+  }
   
   if (tasks.length > 0) {
     body.push('## Available Tasks');
@@ -1357,6 +1426,9 @@ function generateHandoffsFor(agentId) {
       { label: '💻 Start Implementation', agent: 'Full Stack Developer', prompt: 'Implement the plan using test-driven development.', send: false },
       { label: '🧪 Run QA Gate', agent: 'Test Architect & Quality Advisor', prompt: 'Review and test the implementation for quality.', send: false },
       { label: '📋 Refine Backlog', agent: 'Product Owner', prompt: 'Refine the backlog items based on discussion.', send: false },
+      { label: '🚀 Delegate DevOps', agent: 'DevOps Engineer', prompt: 'Handle CI/CD, infrastructure, containerization, and deployment tasks.', send: false },
+      { label: '🤖 Delegate Automated Testing', agent: 'Automation Tester', prompt: 'Execute end-to-end browser tests, visual regression, and cross-browser validation.', send: false },
+      { label: '🔒 Delegate Security Review', agent: 'Security Engineer', prompt: 'Perform security assessment, vulnerability scanning, and threat modeling.', send: false },
     ],
     dev: [
       { label: '🧪 Request QA Review', agent: 'Test Architect & Quality Advisor', prompt: 'Review the implementation above for quality.', send: false },
@@ -1388,6 +1460,22 @@ function generateHandoffsFor(agentId) {
     'ux-expert': [
       { label: '🖌️ Design System', agent: 'UI Expert', prompt: 'Create design system components.', send: false },
       { label: '💻 Implement UX', agent: 'Full Stack Developer', prompt: 'Implement the UX recommendations.', send: false },
+    ],
+    devops: [
+      { label: '💻 Dev Implementation', agent: 'Full Stack Developer', prompt: 'Implement the application code changes needed for this infrastructure work.', send: false },
+      { label: '🏗️ Architecture Review', agent: 'Architect', prompt: 'Review the infrastructure architecture for scalability and design issues.', send: false },
+      { label: '🔒 Security Review', agent: 'Security Engineer', prompt: 'Review infrastructure and deployment configuration for security issues.', send: false },
+    ],
+    'automation-tester': [
+      { label: '💻 Fix Implementation', agent: 'Full Stack Developer', prompt: 'Fix the bugs found during testing with reproduction steps and evidence.', send: false },
+      { label: '🧪 QA Strategy', agent: 'Test Architect & Quality Advisor', prompt: 'Review the test strategy and coverage for missing scenarios.', send: false },
+      { label: '✨ UX Validation', agent: 'UX Expert', prompt: 'Validate UX findings from testing.', send: false },
+    ],
+    security: [
+      { label: '💻 Fix Vulnerability', agent: 'Full Stack Developer', prompt: 'Fix the security vulnerabilities found with severity and remediation steps.', send: false },
+      { label: '🏗️ Architecture Security', agent: 'Architect', prompt: 'Review the security architecture for concerns needing architectural changes.', send: false },
+      { label: '🚀 Infra Security', agent: 'DevOps Engineer', prompt: 'Fix infrastructure security issues and hardening recommendations.', send: false },
+      { label: '🧪 Security Testing', agent: 'Test Architect & Quality Advisor', prompt: 'Create security test cases for vulnerabilities found.', send: false },
     ],
   };
   

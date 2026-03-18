@@ -138,6 +138,32 @@ const AGENT_METADATA = {
     ],
     'user-invokable': true
   },
+  'automation-tester': {
+    description: 'Automation Tester - end-to-end test automation, Playwright web testing, visual regression, API testing, and cross-browser validation.',
+    tools: [...FULL_AGENT_TOOLS,
+      // Browser built-in tools (VS Code Copilot)
+      'browser/openBrowserPage', 'browser/readPage', 'browser/screenshotPage',
+      'browser/navigatePage', 'browser/clickElement', 'browser/dragElement',
+      'browser/hoverElement', 'browser/typeInPage', 'browser/runPlaywrightCode',
+      'browser/handleDialog',
+      // Playwright MCP tools
+      'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages',
+      'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload',
+      'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover',
+      'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back',
+      'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize',
+      'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot',
+      'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type',
+      'playwright/browser_wait_for',
+    ],
+    model: 'Claude Opus 4.6',
+    handoffs: [
+      { label: '💻 Fix Implementation', agent: 'Full Stack Developer', prompt: 'Fix the bugs found during testing with reproduction steps and evidence.', send: false },
+      { label: '🧪 QA Strategy', agent: 'Test Architect & Quality Advisor', prompt: 'Review the test strategy and coverage for missing scenarios.', send: false },
+      { label: '✨ UX Validation', agent: 'UX Expert', prompt: 'Validate the user experience of the tested flows.', send: false },
+    ],
+    'user-invokable': true
+  },
 };
 
 /**

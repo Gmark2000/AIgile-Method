@@ -10,6 +10,8 @@ agents:
   - architect
   - ux-expert
   - ui-expert
+  - automation-tester
+  - devops
 workflows:
   # Fullstack workflows
   # - enterprise-feature-delivery.yaml

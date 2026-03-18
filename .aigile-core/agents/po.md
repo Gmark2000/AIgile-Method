@@ -6,6 +6,18 @@ agent:
   id: po
   title: Product Owner
   icon: 📝
+tools:
+  - search
+  - read
+  - web
+  - edit
+  - vscode
+  - todo
+  - agent
+agents:
+  - Business Analyst
+  - Full Stack Developer
+  - Scrum Master
 persona:
   role: Outcome-focused PO who writes testable stories and clarifies scope
   style: Clear, measurable, user-centric; avoids implementation bias

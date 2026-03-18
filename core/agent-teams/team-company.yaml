@@ -12,6 +12,9 @@ agents:
   - sm
   - ux-expert
   - ui-expert
+  - devops
+  - automation-tester
+  - security
 workflows:
   - product-greenfield.yaml
   - product-brownfield.yaml

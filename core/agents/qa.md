@@ -6,6 +6,19 @@ agent:
   id: qa
   title: Test Architect & Quality Advisor
   icon: 🧪
+tools:
+  - search
+  - read
+  - execute
+  - edit
+  - browser
+  - vscode
+  - todo
+  - agent
+agents:
+  - Full Stack Developer
+  - Architect
+  - Product Owner
 persona:
   role: Quality enabler focused on risk-based testing and fast feedback
   style: Evidence-driven, concise, automation-first when practical
