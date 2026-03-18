@@ -6,6 +6,23 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-18
+### Added
+- **Three new specialist agents** with detailed responsibilities and workflows:
+  - `security` (Security Engineer)
+  - `devops` (DevOps Engineer)
+  - `automation-tester` (Automation Tester)
+
+### Changed
+- **Multi-platform install support** expanded to support both:
+  - GitHub Copilot custom agents (`.github/agents/`)
+  - Google Antigravity format (`.agent/rules/`, `.agent/workflows/`, `GEMINI.md`)
+- Installer flow enhanced with interactive platform selection and platform-specific generation.
+- `tools/cli.js` generation and delegation logic consolidated after merge to preserve full tool coverage and specialist handoff/delegation targets.
+
+### Release
+- Merged `antigravity-feature` into `main` prior to this release.
+
 ## [1.0.5] - 2026-02-12
 ### Changed
 - **Repository URL**: Updated GitHub repository URL from `mark-gozner/aigile-method` to `Gmark2000/AIgile-Method` across all project files

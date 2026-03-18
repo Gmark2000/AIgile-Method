@@ -1,6 +1,6 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (GitHub Copilot & Google Antigravity), handoffs, and delegation",
   "private": false,
   "license": "SEE LICENSE",
