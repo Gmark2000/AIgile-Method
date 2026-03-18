@@ -307,11 +307,38 @@ async function multiSelectPrompt({ title, options, defaults = [] }) {
 }
 
 async function installInteractive({ autoYes = false }) {
-  // Default to GitHub Copilot-focused install
   const dest = process.cwd();
   printInstallBanner({ showGMSignature: true });
 
+  // ── CLI flag overrides ──
+  const forcedCopilot = process.argv.includes('--for-copilot');
+  const forcedAntigravity = process.argv.includes('--for-antigravity');
   const forcedJavaInstructions = process.argv.includes('--with-java-instructions');
+
+  // ── Platform selector ──
+  let platforms = [];
+  if (forcedCopilot || forcedAntigravity) {
+    // Explicit flags take precedence
+    if (forcedCopilot) platforms.push('copilot');
+    if (forcedAntigravity) platforms.push('antigravity');
+  } else if (autoYes) {
+    platforms = ['copilot']; // default for --yes
+  } else {
+    const platformSelections = await multiSelectPrompt({
+      title: 'Select target platforms:',
+      options: [
+        { label: 'GitHub Copilot (.github/agents/)', value: 'copilot' },
+        { label: 'Google Antigravity (.agent/ + GEMINI.md)', value: 'antigravity' },
+      ],
+      defaults: ['copilot'],
+    });
+    platforms = platformSelections.length > 0 ? platformSelections : ['copilot'];
+  }
+
+  const installCopilot = platforms.includes('copilot');
+  const installAntigravityFlag = platforms.includes('antigravity');
+
+  // ── Optional components (only shown in interactive mode) ──
   let addMcpJson = false;
   let addMcpSettings = false;
   let addJavaInstructions = forcedJavaInstructions;
@@ -319,13 +346,14 @@ async function installInteractive({ autoYes = false }) {
     addMcpJson = false;
     addMcpSettings = false;
   } else {
+    const componentOptions = [
+      { label: 'Install MCP servers (.vscode/mcp.json from mcp/servers.json)', value: 'mcpJson' },
+      { label: 'Add mock .vscode/settings.json MCP endpoints', value: 'mcpSettings' },
+      { label: 'Include Java contributor instructions (.github/instructions/java.instructions.md)', value: 'javaInstructions' },
+    ];
     const selections = await multiSelectPrompt({
       title: 'Select optional components:',
-      options: [
-        { label: 'Install MCP servers (.vscode/mcp.json from mcp/servers.json)', value: 'mcpJson' },
-        { label: 'Add mock .vscode/settings.json MCP endpoints', value: 'mcpSettings' },
-        { label: 'Include Java contributor instructions (.github/instructions/java.instructions.md)', value: 'javaInstructions' },
-      ],
+      options: componentOptions,
       defaults: forcedJavaInstructions ? ['mcpJson', 'javaInstructions'] : ['mcpJson'],
     });
     addMcpJson = selections.includes('mcpJson');
@@ -333,26 +361,25 @@ async function installInteractive({ autoYes = false }) {
     if (!forcedJavaInstructions) addJavaInstructions = selections.includes('javaInstructions');
   }
 
-  installGithubCopilot(dest, { addJavaInstructions });
-  // After core install, attempt to add consumer convenience scripts (opt-out with AIGILE_ADD_SCRIPTS=0)
+  // ── Run platform-specific installers ──
+  let antigravityResult = null;
+  if (installCopilot) {
+    installGithubCopilot(dest, { addJavaInstructions });
+  }
+  if (installAntigravityFlag) {
+    antigravityResult = installAntigravity(dest);
+  }
+
+  // ── Post-install shared steps ──
   maybeAddConsumerScripts(dest);
   if (process.argv.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
   if (addMcpJson) writeMcpJson(dest);
+  if (installCopilot) writeVscodeSettings(dest);
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: installAntigravityFlag });
 
-  // Always write essential VS Code settings for orchestrator functionality
-  writeVscodeSettings(dest);
-
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions });
-
-  // Print a concise, colorized summary
+  // ── Print summary ──
   try {
-    // Check for new agents format first, fallback to legacy chatmodes
-    const agentsDir = path.join(dest, '.github', 'agents');
-    const chatModesDir = path.join(dest, '.github', 'chatmodes');
-    const agentCount = fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md')).length : 0;
-    const modeCount = fs.existsSync(chatModesDir) ? fs.readdirSync(chatModesDir).filter(f => f.endsWith('.chatmode.md')).length : 0;
-    const totalAgents = agentCount + modeCount;
     const coreDir = path.join(dest, '.aigile-core');
     const coreFiles = listFilesRecursive(coreDir).length;
     const color = (code) => (s) => `\x1b[${code}m${s}\x1b[0m`;
@@ -361,17 +388,32 @@ async function installInteractive({ autoYes = false }) {
     const yellow = color(33);
     console.log(`\n${green('Summary:')}`);
     console.log(`  - .aigile-core files: ${cyan(String(coreFiles))}`);
-    console.log(`  - Custom agents created: ${cyan(String(agentCount))}`);
-    if (modeCount > 0) console.log(`  - Legacy chat modes: ${cyan(String(modeCount))} (consider upgrading)`);
+
+    if (installCopilot) {
+      const agentsDir = path.join(dest, '.github', 'agents');
+      const agentCount = fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md')).length : 0;
+      console.log(`  - Copilot custom agents: ${cyan(String(agentCount))}`);
+    }
+
+    if (installAntigravityFlag && antigravityResult) {
+      console.log(`  - Antigravity rules: ${cyan(String(antigravityResult.rules))}`);
+      console.log(`  - Antigravity workflows: ${cyan(String(antigravityResult.workflows))}`);
+      console.log(`  - ${yellow('GEMINI.md')} generated`);
+    }
+
     if (addMcpJson) console.log(`  - ${yellow('.vscode/mcp.json')} generated (fill API keys)`);
     if (addMcpSettings) console.log(`  - ${yellow('.vscode/settings.json')} updated with mock MCP servers`);
     if (addJavaInstructions) console.log(`  - ${yellow('.github/instructions/java.instructions.md')} copied`);
+
     console.log(`\n${green('Next steps:')}`);
     let step = 1;
-    console.log(`  ${step++}) Open VS Code in this folder`);
-    console.log(`  ${step++}) Use GitHub Copilot Chat and select an agent from the ${yellow('Agents dropdown')}`);
+    if (installCopilot) {
+      console.log(`  ${step++}) Open VS Code and select an agent from the ${yellow('Agents dropdown')} in Copilot Chat`);
+    }
+    if (installAntigravityFlag) {
+      console.log(`  ${step++}) Open Antigravity IDE — agent rules and workflows are ready in ${yellow('.agent/')}`);
+    }
     if (addMcpJson) console.log(`  ${step++}) When prompted, provide the required API keys for MCP servers`);
-    if (addJavaInstructions) console.log(`  ${step++}) Review ${yellow('.github/instructions/java.instructions.md')} for team guidelines`);
   } catch { }
 }
 
@@ -610,20 +652,20 @@ function relevantDependencies(agentId) {
 
   // Agent-specific data file mappings
   const dataMappings = {
-  'aigile-orchestrator': ['aigile-kb.md'], // Orchestrator has access to knowledge base
-  'aigile-master': ['aigile-kb.md', 'brainstorming-techniques.md', 'elicitation-methods.md', 'technical-preferences.md', 'test-levels-framework.md', 'test-priorities-matrix.md'], // Master has access to all data files
-  analyst: ['brainstorming-techniques.md', 'elicitation-methods.md', 'aigile-kb.md'],
-  architect: ['technical-preferences.md', 'aigile-kb.md'],
-  qa: ['test-levels-framework.md', 'test-priorities-matrix.md', 'technical-preferences.md', 'aigile-kb.md'],
-  dev: ['technical-preferences.md', 'test-levels-framework.md', 'test-priorities-matrix.md', 'aigile-kb.md'],
-  pm: ['aigile-kb.md'],
-  po: ['aigile-kb.md'],
-  sm: ['aigile-kb.md'],
-  'ui-expert': ['aigile-kb.md'],
-  'ux-expert': ['aigile-kb.md'],
-  devops: ['technical-preferences.md', 'aigile-kb.md'],
-  'automation-tester': ['test-levels-framework.md', 'test-priorities-matrix.md', 'aigile-kb.md'],
-  security: ['technical-preferences.md', 'aigile-kb.md']
+    'aigile-orchestrator': ['aigile-kb.md'], // Orchestrator has access to knowledge base
+    'aigile-master': ['aigile-kb.md', 'brainstorming-techniques.md', 'elicitation-methods.md', 'technical-preferences.md', 'test-levels-framework.md', 'test-priorities-matrix.md'], // Master has access to all data files
+    analyst: ['brainstorming-techniques.md', 'elicitation-methods.md', 'aigile-kb.md'],
+    architect: ['technical-preferences.md', 'aigile-kb.md'],
+    qa: ['test-levels-framework.md', 'test-priorities-matrix.md', 'technical-preferences.md', 'aigile-kb.md'],
+    dev: ['technical-preferences.md', 'test-levels-framework.md', 'test-priorities-matrix.md', 'aigile-kb.md'],
+    pm: ['aigile-kb.md'],
+    po: ['aigile-kb.md'],
+    sm: ['aigile-kb.md'],
+    'ui-expert': ['aigile-kb.md'],
+    'ux-expert': ['aigile-kb.md'],
+    devops: ['technical-preferences.md', 'aigile-kb.md'],
+    'automation-tester': ['test-levels-framework.md', 'test-priorities-matrix.md', 'aigile-kb.md'],
+    security: ['technical-preferences.md', 'aigile-kb.md']
   };
 
   // Agent-specific checklist mappings based on role responsibilities
@@ -829,12 +871,12 @@ function mcpToolsForAgent(agentId) {
 function mcpServersForAgent(agentId) {
   // Return MCP server list per agent - all non-orchestrator agents get the core 3 MCPs
   const coreMcpServers = ['github.com', 'sequentialthinking', 'context7'];
-  
+
   // Orchestrator has NO MCP tools - only runSubagent
   if (agentId === 'aigile-orchestrator') {
     return [];
   }
-  
+
   return coreMcpServers;
 }
 
@@ -1254,7 +1296,7 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   const title = agentMeta.title || agentMeta.agentRole || toTitleCase(agentId);
   const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
   const metaName = agentMeta.name || title;
-  
+
   // Full tool list for all agents (except orchestrator)
   // Uses VS Code prefix/toolName format and MCP wildcards
   const FULL_AGENT_TOOLS = [
@@ -1300,10 +1342,9 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   const toolList = agentId === 'aigile-orchestrator' 
     ? ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'search/listDirectory', 'sequentialthinking/*'] 
     : [...new Set([...FULL_AGENT_TOOLS, ...agentSpecificTools, ...tools])].sort();
-  
   // Generate handoffs based on agent role
   const handoffs = generateHandoffsFor(agentId);
-  
+
   // Build YAML frontmatter in new custom agents format
   const fmLines = [
     '---',
@@ -1317,7 +1358,7 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   }
   fmLines.push('model: Claude Opus 4.6');
   fmLines.push('user-invokable: true');
-  
+
   if (handoffs.length > 0) {
     fmLines.push('handoffs:');
     for (const h of handoffs) {
@@ -1329,14 +1370,14 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   }
   fmLines.push('---');
   fmLines.push('');
-  
+
   // Build the agent body
   const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
   const combinedPrinciples = (agentMeta.corePrinciples && agentMeta.corePrinciples.length)
     ? agentMeta.corePrinciples
     : principlesFor(agentId);
   const deps = relevantDependencies(agentId);
-  
+
   const body = [];
   body.push(`# ${title}`);
   body.push('');
@@ -1354,36 +1395,33 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     body.push(`- ${p}`);
   }
   body.push('');
-  if (tools && tools.length > 0) {
-    const delegationTargets = [
-      { id: 'dev', label: 'Full Stack Developer', specialty: 'Code implementation, debugging, TDD' },
-      { id: 'architect', label: 'Architect', specialty: 'Architecture review, documentation' },
-      { id: 'po', label: 'Product Owner', specialty: 'Story creation, backlog management' },
-      { id: 'qa', label: 'Test Architect & Quality Advisor', specialty: 'Testing, quality gates' },
-      { id: 'analyst', label: 'Business Analyst', specialty: 'Requirements analysis' },
-      { id: 'pm', label: 'Product Manager', specialty: 'Project planning' },
-      { id: 'sm', label: 'Scrum Master', specialty: 'Scrum facilitation, ceremonies' },
-      { id: 'ui-expert', label: 'UI Expert', specialty: 'UI design, design systems' },
-      { id: 'ux-expert', label: 'UX Expert', specialty: 'UX research, interaction flows' },
-      { id: 'devops', label: 'DevOps Engineer', specialty: 'CI/CD, infrastructure, deployments' },
-      { id: 'automation-tester', label: 'Automation Tester', specialty: 'E2E testing, Playwright, visual regression' },
-      { id: 'security', label: 'Security Engineer', specialty: 'Security review, OWASP, threat modeling' },
-    ];
-    const canonicalId = canonicalAgentId(agentId);
-    body.push('## Subagent Delegation');
-    body.push('');
-    body.push('Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:');
-    body.push('');
-    body.push('| Agent | Specialty |');
-    body.push('|-------|-----------|');
-    for (const t of delegationTargets) {
-      if (t.id !== canonicalId) {
-        body.push(`| \`${t.id}\` | ${t.specialty} |`);
-      }
+  const delegationTargets = [
+    { id: 'dev', label: 'Full Stack Developer', specialty: 'Code implementation, debugging, TDD' },
+    { id: 'architect', label: 'Architect', specialty: 'Architecture review, documentation' },
+    { id: 'po', label: 'Product Owner', specialty: 'Story creation, backlog management' },
+    { id: 'qa', label: 'Test Architect & Quality Advisor', specialty: 'Testing, quality gates' },
+    { id: 'analyst', label: 'Business Analyst', specialty: 'Requirements analysis' },
+    { id: 'pm', label: 'Product Manager', specialty: 'Project planning' },
+    { id: 'sm', label: 'Scrum Master', specialty: 'Scrum facilitation, ceremonies' },
+    { id: 'ui-expert', label: 'UI Expert', specialty: 'UI design, design systems' },
+    { id: 'ux-expert', label: 'UX Expert', specialty: 'UX research, interaction flows' },
+    { id: 'devops', label: 'DevOps Engineer', specialty: 'CI/CD, infrastructure, deployments' },
+    { id: 'automation-tester', label: 'Automation Tester', specialty: 'E2E testing, Playwright, visual regression' },
+    { id: 'security', label: 'Security Engineer', specialty: 'Security review, OWASP, threat modeling' },
+  ];
+  const canonicalId = canonicalAgentId(agentId);
+  body.push('## Subagent Delegation');
+  body.push('');
+  body.push('Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:');
+  body.push('');
+  body.push('| Agent | Specialty |');
+  body.push('|-------|-----------|');
+  for (const t of delegationTargets) {
+    if (t.id !== canonicalId) {
+      body.push(`| \`${t.id}\` | ${t.specialty} |`);
     }
-    body.push('');
   }
-  
+  body.push('');
   if (tasks.length > 0) {
     body.push('## Available Tasks');
     body.push('');
@@ -1392,7 +1430,7 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     }
     body.push('');
   }
-  
+
   if (deps.templates.length > 0) {
     body.push('## Templates');
     body.push('');
@@ -1403,7 +1441,7 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     }
     body.push('');
   }
-  
+
   body.push('## Original Agent Definition');
   body.push('');
   body.push('<details>');
@@ -1412,7 +1450,7 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   body.push(agentMd.trim());
   body.push('');
   body.push('</details>');
-  
+
   return fmLines.join('\n') + body.join('\n');
 }
 
@@ -1478,8 +1516,298 @@ function generateHandoffsFor(agentId) {
       { label: '🧪 Security Testing', agent: 'Test Architect & Quality Advisor', prompt: 'Create security test cases for vulnerabilities found.', send: false },
     ],
   };
-  
+
   return handoffMappings[agentId] || [];
+}
+
+// ---------------------------------------------------------------------------
+// Antigravity / Gemini CLI generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate an Antigravity-compatible rules file for an agent.
+ * Antigravity uses plain markdown rules in .agent/rules/ — no YAML frontmatter,
+ * no tools declarations, no handoffs (handled differently in Antigravity).
+ */
+function generateAntigravityAgent({ agentId, agentMeta, agentMd, tools, tasks, checklists }) {
+  const title = agentMeta.title || toTitleCase(agentId);
+  const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
+  const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
+  const combinedPrinciples = (agentMeta.corePrinciples && agentMeta.corePrinciples.length)
+    ? agentMeta.corePrinciples
+    : principlesFor(agentId);
+  const deps = relevantDependencies(agentId);
+
+  const lines = [];
+  lines.push(`# ${title} — AIgile Agent Rule`);
+  lines.push('');
+  lines.push(`> ${description}`);
+  lines.push('');
+  lines.push('## Core Identity');
+  lines.push('');
+  lines.push(`- **Role**: ${person.role}`);
+  lines.push(`- **Style**: ${person.style}`);
+  lines.push(`- **Focus**: ${person.focus}`);
+  lines.push('');
+  lines.push('## Operating Principles');
+  lines.push('');
+  for (const p of combinedPrinciples) {
+    lines.push(`- ${p}`);
+  }
+  lines.push('');
+
+  // Agent coordination guidance (replaces Copilot handoffs/runSubagent)
+  lines.push('## Agent Coordination');
+  lines.push('');
+  lines.push('This agent is part of the AIgile framework. Other specialist agents are available:');
+  lines.push('');
+  lines.push('| Agent | Specialty |');
+  lines.push('|-------|-----------|');
+  lines.push('| `dev` | Code implementation, debugging, TDD |');
+  lines.push('| `architect` | Architecture review, documentation |');
+  lines.push('| `po` | Story creation, backlog management |');
+  lines.push('| `qa` | Testing, quality gates |');
+  lines.push('| `analyst` | Requirements analysis |');
+  lines.push('| `pm` | Project planning |');
+  lines.push('');
+
+  if (tasks.length > 0) {
+    lines.push('## Available Tasks');
+    lines.push('');
+    lines.push('Task files are located in `.aigile-core/tasks/`. Load and follow them exactly when executing a command:');
+    lines.push('');
+    for (const t of tasks) {
+      lines.push(`- \`${t}\``);
+    }
+    lines.push('');
+  }
+
+  if (deps.templates.length > 0) {
+    lines.push('## Templates');
+    lines.push('');
+    lines.push('Reference templates in `.aigile-core/templates/`:');
+    lines.push('');
+    for (const t of deps.templates) {
+      lines.push(`- ${t}`);
+    }
+    lines.push('');
+  }
+
+  if (deps.data.length > 0) {
+    lines.push('## Data References');
+    lines.push('');
+    lines.push('Reference data files in `.aigile-core/data/`:');
+    lines.push('');
+    for (const d of deps.data) {
+      lines.push(`- ${d}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('## Original Agent Definition');
+  lines.push('');
+  lines.push('<details>');
+  lines.push('<summary>Expand for full agent configuration</summary>');
+  lines.push('');
+  lines.push(agentMd.trim());
+  lines.push('');
+  lines.push('</details>');
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate Antigravity workflow files from an agent's commands.
+ * Each workflow is a .md file with YAML frontmatter (description) and step instructions.
+ * Returns an array of { filename, content } objects.
+ */
+function generateAntigravityWorkflows(agentId) {
+  const commands = commandsFor(agentId);
+  const workflows = [];
+
+  for (const cmd of commands) {
+    const key = Object.keys(cmd)[0];
+    const val = cmd[key];
+    // Skip meta commands
+    if (key === 'help' || key === 'exit') continue;
+
+    const slug = `aigile-${agentId}-${key}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+    const wfLines = [];
+    wfLines.push('---');
+    wfLines.push(`description: ${typeof val === 'string' ? val : `AIgile ${agentId}: ${key}`}`);
+    wfLines.push('---');
+    wfLines.push('');
+    wfLines.push(`# ${toTitleCase(key)}`);
+    wfLines.push('');
+    wfLines.push(`This workflow is part of the **${toTitleCase(agentId)}** agent in the AIgile framework.`);
+    wfLines.push('');
+
+    if (Array.isArray(val)) {
+      wfLines.push('## Steps');
+      wfLines.push('');
+      let step = 1;
+      for (const el of val) {
+        wfLines.push(`${step}. ${el}`);
+        step++;
+      }
+    } else if (typeof val === 'string') {
+      wfLines.push(`**Goal:** ${val}`);
+    } else {
+      wfLines.push(`**Goal:** Execute the ${key} command.`);
+    }
+
+    wfLines.push('');
+    wfLines.push('## Resources');
+    wfLines.push('');
+    wfLines.push('- Agent definition: `.aigile-core/agents/`');
+    wfLines.push('- Task files: `.aigile-core/tasks/`');
+    wfLines.push('- Templates: `.aigile-core/templates/`');
+    wfLines.push('');
+
+    workflows.push({ filename: `${slug}.md`, content: wfLines.join('\n') });
+  }
+
+  return workflows;
+}
+
+/**
+ * Generate the GEMINI.md project-level instructions file for Antigravity.
+ */
+function generateGeminiMd(agentIds) {
+  const lines = [];
+  lines.push('# AIgile Development Method');
+  lines.push('');
+  lines.push('This project uses the **AIgile Development Method** — a pragmatic, agent-driven agile framework.');
+  lines.push('');
+  lines.push('## Agent Rules');
+  lines.push('');
+  lines.push('Specialist agent personas are defined in `.agent/rules/`. Each rule file defines a role with specific');
+  lines.push('expertise, operating principles, and task references. When asked to assume a role, load the corresponding');
+  lines.push('rule file from `.agent/rules/`.');
+  lines.push('');
+  lines.push('### Available Agents');
+  lines.push('');
+  lines.push('| Agent | File | Specialty |');
+  lines.push('|-------|------|-----------|');
+  for (const id of agentIds) {
+    const title = toTitleCase(id);
+    const icon = agentIcon(id);
+    lines.push(`| ${icon} ${title} | \`.agent/rules/${id}.md\` | ${title} responsibilities |`);
+  }
+  lines.push('');
+  lines.push('## Workflows');
+  lines.push('');
+  lines.push('On-demand workflows are available in `.agent/workflows/`. Use them as slash commands');
+  lines.push('to trigger specific development activities (e.g., create stories, run QA gate, brainstorm).');
+  lines.push('');
+  lines.push('## Core Assets');
+  lines.push('');
+  lines.push('The `.aigile-core/` directory contains all framework resources:');
+  lines.push('');
+  lines.push('- **`tasks/`** — Executable task instructions (follow them exactly)');
+  lines.push('- **`templates/`** — Output templates (YAML-based)');
+  lines.push('- **`checklists/`** — Quality and process checklists');
+  lines.push('- **`data/`** — Reference data (brainstorming techniques, test frameworks, etc.)');
+  lines.push('- **`core-config.yaml`** — Project paths and preferences');
+  lines.push('');
+  lines.push('## Key Principles');
+  lines.push('');
+  lines.push('- Tasks are executable instructions; follow them exactly.');
+  lines.push('- Elicitation steps are mandatory; always ask for missing inputs.');
+  lines.push('- Save artifacts under `docs/` for traceability.');
+  lines.push('- Prefer small, safe, testable changes.');
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Install AIgile for Google Antigravity / Gemini CLI.
+ * Creates .agent/rules/, .agent/workflows/, and GEMINI.md.
+ */
+function installAntigravity(dest) {
+  // 1) Copy core to .aigile-core (shared with Copilot path)
+  const srcCore = path.join(root, 'core');
+  const dstCore = path.join(dest, '.aigile-core');
+  if (fs.existsSync(srcCore)) {
+    copyDir(srcCore, dstCore);
+  }
+
+  // 2) Generate agent rules in .agent/rules/
+  const agentsDir = path.join(srcCore, 'agents');
+  const rulesDir = path.join(dest, '.agent', 'rules');
+  const workflowsDir = path.join(dest, '.agent', 'workflows');
+  fs.mkdirSync(rulesDir, { recursive: true });
+  fs.mkdirSync(workflowsDir, { recursive: true });
+
+  const generatedRules = [];
+  const allAgentIds = [];
+
+  if (fs.existsSync(agentsDir)) {
+    const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+    const agentMap = new Map(); // id -> filename
+
+    // First pass: identify all agents and prioritize source format (.md) over native (.agent.md)
+    for (const f of files) {
+      const isNativeAgent = f.endsWith('.agent.md');
+      const agentId = isNativeAgent ? f.replace(/\.agent\.md$/, '') : f.replace(/\.[^/.]+$/, '');
+
+      if (!agentMap.has(agentId)) {
+        agentMap.set(agentId, f);
+      } else {
+        // If we already have an entry, override ONLY if current file is source format (and previous was native)
+        const currentIsSource = !isNativeAgent;
+        const existingIsNative = agentMap.get(agentId).endsWith('.agent.md');
+        if (currentIsSource && existingIsNative) {
+          agentMap.set(agentId, f);
+        }
+      }
+    }
+
+    // Sort by agentId for consistent output
+    const sortedIds = Array.from(agentMap.keys()).sort();
+
+    for (const agentId of sortedIds) {
+      const f = agentMap.get(agentId);
+      const agentPath = path.join(agentsDir, f);
+      const agentMd = read(agentPath);
+      const agentMeta = extractAgentMeta(agentMd);
+      const allTasks = listTasksForAgent(agentId);
+
+      allAgentIds.push(agentId);
+
+      // Generate Antigravity rule file
+      const ruleContent = generateAntigravityAgent({
+        agentId,
+        agentMeta,
+        agentMd,
+        tools: [],
+        tasks: allTasks,
+        checklists: [],
+      });
+      write(path.join(rulesDir, `${agentId}.md`), ruleContent);
+      generatedRules.push(agentId);
+
+      // Generate workflows for this agent
+      const workflows = generateAntigravityWorkflows(agentId);
+      for (const wf of workflows) {
+        write(path.join(workflowsDir, wf.filename), wf.content);
+      }
+    }
+  }
+
+  // 3) Generate GEMINI.md at project root
+  const geminiMdContent = generateGeminiMd(allAgentIds);
+  write(path.join(dest, 'GEMINI.md'), geminiMdContent);
+
+  const color = (code) => (s) => `\x1b[${code}m${s}\x1b[0m`;
+  const green = color(32);
+  console.log(`✅ Created ${generatedRules.length} agent rules in .agent/rules/`);
+  const wfCount = fs.readdirSync(workflowsDir).filter(f => f.endsWith('.md')).length;
+  console.log(`✅ Created ${wfCount} workflows in .agent/workflows/`);
+  console.log(green('✅ Generated GEMINI.md'));
+  console.log(green('✅ Installed AIgile for Google Antigravity into'), dest);
+
+  return { rules: generatedRules.length, workflows: wfCount };
 }
 
 function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyFormat = false } = {}) {
@@ -1492,7 +1820,7 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
   // 2) Generate GitHub Copilot custom agents in .github/agents/ (new format)
   //    Or legacy chatmodes in .github/chatmodes/ if explicitly requested
   const agentsDir = path.join(srcCore, 'agents');
-  const outputDir = useLegacyFormat 
+  const outputDir = useLegacyFormat
     ? path.join(dest, '.github', 'chatmodes')
     : path.join(dest, '.github', 'agents');
   fs.mkdirSync(outputDir, { recursive: true });
@@ -1510,7 +1838,7 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
       const tools = [];
       const allTasks = listTasksForAgent(agentId);
       const allChecklists = []; // Use only agent-specific checklists from relevantDependencies()
-      
+
       // If already in native .agent.md format, copy directly
       if (isNativeAgent && !useLegacyFormat) {
         const outName = f;
@@ -1518,25 +1846,25 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
         generatedAgents.push({ id: agentId, format: 'native' });
         continue;
       }
-      
+
       // Generate structured agent/chatmode file
       const outContent = useLegacyFormat
         ? generateStructuredChatmode({
-            agentId,
-            agentMeta,
-            agentMd,
-            tools,
-            tasks: allTasks,
-            checklists: allChecklists,
-          })
+          agentId,
+          agentMeta,
+          agentMd,
+          tools,
+          tasks: allTasks,
+          checklists: allChecklists,
+        })
         : generateCustomAgent({
-            agentId,
-            agentMeta,
-            agentMd,
-            tools,
-            tasks: allTasks,
-            checklists: allChecklists,
-          });
+          agentId,
+          agentMeta,
+          agentMd,
+          tools,
+          tasks: allTasks,
+          checklists: allChecklists,
+        });
       const outName = useLegacyFormat
         ? `${kebabCaseName(f)}.chatmode.md`
         : `${kebabCaseName(f)}.agent.md`;
@@ -1597,7 +1925,7 @@ function maybeAddConsumerScripts(dest) {
   } catch { /* ignore */ }
 }
 
-function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false } = {}) {
+function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false, forAntigravity = false } = {}) {
   try {
     const manifest = {
       name: '@mark-gozner/aigile-method',
@@ -1635,6 +1963,16 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
     if (fs.existsSync(promptsDir)) {
       manifest.prompts = fs.readdirSync(promptsDir).filter(f => f.endsWith('.md') || f.endsWith('.prompt.md') || f.endsWith('.txt')).length;
     }
+    // Antigravity output tracking
+    if (forAntigravity) {
+      const rulesDir = path.join(dest, '.agent', 'rules');
+      const workflowsDir = path.join(dest, '.agent', 'workflows');
+      manifest.antigravity = {
+        rules: fs.existsSync(rulesDir) ? fs.readdirSync(rulesDir).filter(f => f.endsWith('.md')).length : 0,
+        workflows: fs.existsSync(workflowsDir) ? fs.readdirSync(workflowsDir).filter(f => f.endsWith('.md')).length : 0,
+        geminiMd: fs.existsSync(path.join(dest, 'GEMINI.md'))
+      };
+    }
     write(path.join(dest, '.aigile-manifest.json'), JSON.stringify(manifest, null, 2));
   } catch { /* ignore */ }
 }
@@ -1655,7 +1993,7 @@ function showStatus(cwd) {
     console.log(`Agents:         ${data.agents?.length || 0}`);
     console.log(`Custom Agents:  ${data.customAgents || 0}`);
     if (data.chatModes > 0) console.log(`Chat Modes:     ${data.chatModes} (legacy)`);
-  if (typeof data.prompts !== 'undefined') console.log(`Prompts:        ${data.prompts}`);
+    if (typeof data.prompts !== 'undefined') console.log(`Prompts:        ${data.prompts}`);
     console.log(`MCP Servers:    ${data.mcp?.serversJson ? 'yes' : 'no'}`);
     console.log(`MCP Mock Sets:  ${data.mcp?.mockSettings ? 'yes' : 'no'}`);
     if (data.instructions) {
@@ -1810,11 +2148,11 @@ function writeVscodeSettings(dest) {
   if (fs.existsSync(vscodeSettingsPath)) {
     try { settings = JSON.parse(read(vscodeSettingsPath)); } catch { }
   }
-  
+
   // Enable custom agent as subagent (experimental) - required for orchestrator delegation
   // This allows runSubagent calls to use the target agent's toolset
   settings['chat.customAgentInSubagent.enabled'] = true;
-  
+
   write(vscodeSettingsPath, JSON.stringify(settings, null, 2));
   console.log('✅ Configured VS Code settings for orchestrator subagent delegation');
 }
@@ -1827,18 +2165,25 @@ else if (cmd === 'install') {
   const addMcpJsonFlag = flags.has('--with-mcp');
   const addMcpSettingsFlag = flags.has('--with-mcp-settings');
   const addJavaInstructionsFlag = flags.has('--with-java-instructions');
+  const forAntigravityFlag = flags.has('--for-antigravity');
+  const forCopilotFlag = flags.has('--for-copilot');
   // If flags explicitly provided, skip prompts and just do what flags request
-  if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag) {
+  if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag || forAntigravityFlag || forCopilotFlag) {
     printInstallBanner({ showGMSignature: true });
     const dest = process.cwd();
-    installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag });
+    const doCopilot = forCopilotFlag || !forAntigravityFlag; // default to copilot unless only antigravity is requested
+    if (doCopilot) {
+      installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag });
+    }
+    if (forAntigravityFlag) {
+      installAntigravity(dest);
+    }
     maybeAddConsumerScripts(dest);
     if (flags.has('--prune-legacy')) pruneLegacy(dest);
     if (addMcpSettingsFlag) writeMockMcp(dest);
     if (addMcpJsonFlag) writeMcpJson(dest);
-    // Always write essential VS Code settings for orchestrator functionality
-    writeVscodeSettings(dest);
-    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag });
+    if (doCopilot) writeVscodeSettings(dest);
+    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: forAntigravityFlag });
   } else {
     await installInteractive({ autoYes });
   }
@@ -1862,7 +2207,7 @@ else if (cmd === 'init' || !cmd) {
   for (let i = 0; i < argvRest.length; i++) {
     const a = argvRest[i];
     if (a === 'init') continue;
-    if (a === '--token' && argvRest[i+1]) { i++; continue; } // skip legacy token flag
+    if (a === '--token' && argvRest[i + 1]) { i++; continue; } // skip legacy token flag
     if (a.startsWith('--token=')) { continue; } // skip legacy token flag
     passThrough.add(a);
   }
@@ -1872,14 +2217,16 @@ else if (cmd === 'init' || !cmd) {
   const addMcpJson = passThrough.has('--with-mcp');
   const addMcpSettings = passThrough.has('--with-mcp-settings');
   const addJavaInstructions = passThrough.has('--with-java-instructions');
-  installGithubCopilot(dest, { addJavaInstructions });
+  const forAntigravity = passThrough.has('--for-antigravity');
+  const forCopilot = passThrough.has('--for-copilot') || !forAntigravity;
+  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (forAntigravity) installAntigravity(dest);
   maybeAddConsumerScripts(dest);
   if (passThrough.has('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
   if (addMcpJson) writeMcpJson(dest);
-  // Always write essential VS Code settings for orchestrator functionality
-  writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions });
+  if (forCopilot) writeVscodeSettings(dest);
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
   console.log('✅ Init complete');
 }
 else if (cmd === 'auth-install') {
@@ -1891,13 +2238,16 @@ else if (cmd === 'auth-install') {
   const addMcpJson = argvRest.includes('--with-mcp');
   const addMcpSettings = argvRest.includes('--with-mcp-settings');
   const addJavaInstructions = argvRest.includes('--with-java-instructions');
-  installGithubCopilot(dest, { addJavaInstructions });
+  const forAntigravity = argvRest.includes('--for-antigravity');
+  const forCopilot = argvRest.includes('--for-copilot') || !forAntigravity;
+  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (forAntigravity) installAntigravity(dest);
   maybeAddConsumerScripts(dest);
   if (argvRest.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
   if (addMcpJson) writeMcpJson(dest);
-  writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions });
+  if (forCopilot) writeVscodeSettings(dest);
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
   console.log('✅ Install complete');
 }
 else {
@@ -1912,15 +2262,17 @@ else {
   console.log('  --with-mcp          Include .vscode/mcp.json');
   console.log('  --with-mcp-settings Include mock .vscode/settings.json MCP endpoints');
   console.log('  --with-java-instructions  Copy Java instructions into .github/instructions');
+  console.log('  --for-copilot       Install for GitHub Copilot (.github/agents/)');
+  console.log('  --for-antigravity   Install for Google Antigravity (.agent/ + GEMINI.md)');
   console.log('  --prune-legacy      Remove legacy artifacts (old .aigile, docs skeleton, chatmodes)');
   console.log('  --use-legacy-format Use deprecated .chatmode.md format instead of .agent.md');
   console.log('  --yes               Skip interactive component selection for install');
   console.log('\\nExamples:');
-  console.log('  npx @mark-gozner/aigile-method            # installs agents and core');
+  console.log('  npx @mark-gozner/aigile-method                         # installs agents and core (Copilot)');
+  console.log('  npx @mark-gozner/aigile-method install --for-antigravity --yes  # Antigravity only');
+  console.log('  npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --yes  # both platforms');
   console.log('  npx @mark-gozner/aigile-method init --with-mcp');
-  console.log('  npx @mark-gozner/aigile-method install --yes');
-  console.log('\\nNew Features (v0.3.0):');
-  console.log('  - Custom Agents: Uses new .github/agents/*.agent.md format');
-  console.log('  - Handoffs: Agents can hand off to other specialists');
-  console.log('  - runSubagent: Autonomous task delegation between agents');
+  console.log('\\nFeatures:');
+  console.log('  - GitHub Copilot: Custom agents (.agent.md), handoffs, runSubagent');
+  console.log('  - Google Antigravity: Agent rules, workflows, GEMINI.md');
 }

@@ -1,7 +1,7 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.0.5",
-  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents, handoffs, and subagent delegation",
+  "version": "1.1.0",
+  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (GitHub Copilot & Google Antigravity), handoffs, and delegation",
   "private": false,
   "license": "SEE LICENSE",
   "bin": {
@@ -10,7 +10,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18"
   },
   "scripts": {
     "bundle": "node tools/cli.js bundle",
@@ -30,6 +30,8 @@
     "aigile:list": "aigile-method list:agents"
   },
   "keywords": [
+    "antigravity",
+    "gemini",
     "agentic",
     "agile",
     "ai",
