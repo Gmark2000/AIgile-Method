@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is inspired by Keep a Changelog, and this project follows Semantic Versioning.
 
 ## [Unreleased]
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.3.0] - 2026-04-22
+### Added
+- **AIgile Manual Orchestrator agent** — new human-in-the-loop variant of the orchestrator that confirms every delegation via `vscode_askQuestions` before invoking `runSubagent`. Includes hard-stop pre-delegation block, self-check protocol, canonical question template, and explicit anti-patterns list to prevent silent auto-delegation.
+- **Figma MCP tooling for designer agents** — UI Expert and UX Expert now declare `figma-allow` lists granting Figma's create/edit toolset (`use_figma`, `create_new_file`, `generate_figma_design`, `generate_diagram`, etc.) so they can produce designs from chat. Excludes destructive operations.
+- **"Available Orchestrator Modes" guide section** — comparison table of the automatic vs. manual orchestrator in `docs/orchestrator-guide.md`.
+- `aigile-manual-orchestrator` added to `core/agent-teams/team-all.yaml`.
+
+### Changed
+- **Custom agent `tools:` frontmatter format** — installer now emits a two-line block (`tools:<namespaces>` followed by a `[<granular tools>]` line) for all generated `.agent.md` files. The orchestrator verbatim-copy path uses `rewriteAgentFrontmatterTools` to convert block-style `tools:` lists to the same format while preserving `agents:`, `user-invocable`, `disable-model-invocation`, and `handoffs:`.
+- **Generic MCP allow-list propagation** — installer now parses any `mcp-tools.<server>-allow:` block from agent source and merges entries into the generated top-level `tools:` line. Wildcard-namespace dedup removes explicit per-tool entries already covered by a same-namespace `*` wildcard.
+
+### Fixed
+- **AIgile Manual Orchestrator delegating without asking** — added hard-stop pre-delegation rules, per-tool-call self-check, canonical question template, and explicit critical-violation anti-patterns to prevent the agent from skipping `vscode_askQuestions` before `runSubagent` calls.
 
 ## [1.2.0] - 2026-03-18
 ### Added
