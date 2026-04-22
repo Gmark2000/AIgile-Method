@@ -632,6 +632,46 @@ function extractAgentMeta(agentMd) {
   return meta;
 }
 
+/**
+ * Extract any explicit MCP allow-lists declared in a source agent's YAML under
+ * `mcp-tools:`. Recognizes any key matching `<server>-allow:` (e.g.
+ * `figma-allow:`, `playwright-allow:`) whose value is a YAML list of MCP tool
+ * strings already in `serverName/toolName` form. Returns a flat string array.
+ * Generic — not coupled to any specific server.
+ */
+function extractMcpAllowLists(agentMd) {
+  const out = [];
+  const m = agentMd.match(/```ya?ml\r?\n([\s\S]*?)\r?\n```/);
+  const yaml = m ? m[1] : agentMd;
+  if (!yaml) return out;
+  // Capture the indented body of the top-level `mcp-tools:` mapping. The block
+  // ends at the next line that starts with a non-whitespace char (next
+  // top-level YAML key) or end of input.
+  const block = yaml.match(/^mcp-tools\s*:[ \t]*\r?\n([\s\S]*?)(?=^\S|\Z)/m);
+  if (!block) return out;
+  const body = block[1];
+  // Find each `<server>-allow:` sub-key and gather its `- item` entries.
+  const re = /^[ \t]+([A-Za-z0-9_.-]+)-allow\s*:[ \t]*\r?\n((?:[ \t]+-[^\n]*\r?\n?)+)/gm;
+  let mm;
+  while ((mm = re.exec(body)) !== null) {
+    const items = mm[2].split(/\r?\n/);
+    for (const line of items) {
+      let v = line.replace(/^\s*-\s*/, '');
+      if (!v.trim()) continue;
+      // Prefer the value inside surrounding quotes if present (handles trailing
+      // `# comment` cleanly); otherwise strip an inline comment.
+      const quoted = v.match(/^['"]([^'"]+)['"]/);
+      if (quoted) {
+        out.push(quoted[1].trim());
+      } else {
+        const noComment = v.split('#')[0].trim();
+        if (noComment) out.push(noComment);
+      }
+    }
+  }
+  return out;
+}
+
 function relevantDependencies(agentId) {
   const result = { templates: [], data: [], checklists: [] };
 
@@ -1292,6 +1332,167 @@ function canonicalAgentId(id) {
   return id;
 }
 
+// --- Custom Agent tools frontmatter (new VS Code + Copilot format) ---------
+// Canonical granular sub-tools per top-level namespace, derived from the
+// reference custom-agent example. Keep this list authoritative — input tool
+// names are normalized into namespaces and the bracketed second line is
+// emitted from these canonical sets.
+const NAMESPACE_GRANULAR_TOOLS = {
+  vscode: [
+    'vscode/extensions',
+    'vscode/askQuestions',
+    'vscode/memory',
+    'vscode/newWorkspace',
+    'vscode/runCommand',
+    'vscode/switchAgent',
+    'vscode/vscodeAPI',
+  ],
+  execute: [
+    'execute/getTerminalOutput',
+    'execute/killTerminal',
+    'execute/createAndRunTask',
+    'execute/runInTerminal',
+    'execute/runNotebookCell',
+  ],
+  read: [
+    'read/terminalSelection',
+    'read/terminalLastCommand',
+    'read/getNotebookSummary',
+    'read/problems',
+    'read/readFile',
+  ],
+  agent: ['agent/runSubagent'],
+  browser: [], // no granular sub-tools known; only top-level namespace is emitted
+  edit: [
+    'edit/createDirectory',
+    'edit/createFile',
+    'edit/createJupyterNotebook',
+    'edit/editFiles',
+    'edit/editNotebook',
+  ],
+  search: [
+    'search/changes',
+    'search/codebase',
+    'search/fileSearch',
+    'search/listDirectory',
+    'search/textSearch',
+    'search/searchSubagent',
+  ],
+  web: ['web/fetch'],
+  todo: ['todo'],
+};
+
+// Stable order of top-level namespaces on the inline `tools:` line. MCP entries
+// (any qualified name not in this set) are inserted between `browser` and `edit`
+// to match the reference example.
+const NAMESPACE_ORDER = ['vscode', 'execute', 'read', 'agent', 'browser', 'edit', 'search', 'web', 'todo'];
+const KNOWN_NAMESPACES = new Set(NAMESPACE_ORDER);
+
+// Legacy short tool names (used in source agent YAML) that map to a namespace.
+const SHORT_NAME_TO_NAMESPACE = {
+  askQuestions: 'vscode',
+};
+
+/**
+ * Format a tool list into the new two-line custom-agent frontmatter format:
+ *   tools:vscode, execute, read, agent, browser, 'org/server/*', edit, search, web, todo
+ *   [vscode/extensions, vscode/askQuestions, ..., todo]
+ *
+ * - Top-level line lists deduplicated namespaces in canonical order plus any
+ *   MCP entries (anything containing `/` whose prefix is not a known namespace),
+ *   single-quoted and inserted between `browser` and `edit`.
+ * - Bracketed line enumerates the canonical granular sub-tools for each
+ *   namespace present (MCP entries are NOT expanded).
+ */
+function formatToolsFrontmatter(toolList) {
+  const namespaces = new Set();
+  const mcpEntries = [];
+  const seenMcp = new Set();
+
+  for (const raw of Array.isArray(toolList) ? toolList : [toolList]) {
+    const t = String(raw || '').trim();
+    if (!t) continue;
+    if (t.includes('/')) {
+      const ns = t.split('/')[0];
+      if (KNOWN_NAMESPACES.has(ns)) {
+        namespaces.add(ns);
+      } else if (!seenMcp.has(t)) {
+        seenMcp.add(t);
+        mcpEntries.push(`'${t}'`);
+      }
+    } else if (KNOWN_NAMESPACES.has(t)) {
+      namespaces.add(t);
+    } else if (SHORT_NAME_TO_NAMESPACE[t]) {
+      namespaces.add(SHORT_NAME_TO_NAMESPACE[t]);
+    }
+    // Unknown bare names are silently dropped — only known namespaces or
+    // qualified MCP entries are emitted.
+  }
+
+  // Wildcard dedup: if `<ns>/*` is present for an MCP namespace, drop sibling
+  // explicit `<ns>/<specific>` entries (already granted by the wildcard).
+  // Only applies within the SAME namespace and only to MCP entries (the
+  // bracketed granular line for KNOWN_NAMESPACES is untouched).
+  const wildcardMcpNs = new Set();
+  for (const e of mcpEntries) {
+    const inner = e.slice(1, -1); // strip surrounding single quotes
+    const slash = inner.indexOf('/');
+    if (slash !== -1 && inner.slice(slash + 1) === '*') {
+      wildcardMcpNs.add(inner.slice(0, slash));
+    }
+  }
+  const dedupedMcpEntries = mcpEntries.filter((e) => {
+    const inner = e.slice(1, -1);
+    const slash = inner.indexOf('/');
+    if (slash === -1) return true;
+    const ns = inner.slice(0, slash);
+    const rest = inner.slice(slash + 1);
+    if (rest === '*') return true; // keep the wildcard itself
+    return !wildcardMcpNs.has(ns);
+  });
+
+  const topLevel = [];
+  let mcpInserted = false;
+  for (const ns of NAMESPACE_ORDER) {
+    if (ns === 'edit' && dedupedMcpEntries.length && !mcpInserted) {
+      topLevel.push(...dedupedMcpEntries);
+      mcpInserted = true;
+    }
+    if (namespaces.has(ns)) topLevel.push(ns);
+  }
+  if (dedupedMcpEntries.length && !mcpInserted) topLevel.push(...dedupedMcpEntries);
+
+  const granular = [];
+  for (const ns of NAMESPACE_ORDER) {
+    if (!namespaces.has(ns)) continue;
+    granular.push(...NAMESPACE_GRANULAR_TOOLS[ns]);
+  }
+
+  return `tools:${topLevel.join(', ')}\n[${granular.join(', ')}]`;
+}
+
+/**
+ * Rewrite the `tools:` block of an agent markdown file's YAML frontmatter to
+ * the new two-line format. Used for the verbatim-copy path (orchestrators)
+ * where the rest of the frontmatter must be preserved exactly.
+ */
+function rewriteAgentFrontmatterTools(content) {
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) return content;
+  const fm = fmMatch[1];
+  // Match `tools:` followed by an indented `- item` YAML list block.
+  const toolsBlockRe = /^tools:[ \t]*\r?\n((?:[ \t]+-[^\n]*\r?\n?)+)/m;
+  const toolsMatch = fm.match(toolsBlockRe);
+  if (!toolsMatch) return content;
+  const items = toolsMatch[1]
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*-\s*/, '').trim())
+    .filter(Boolean);
+  const replacement = formatToolsFrontmatter(items) + '\n';
+  const newFm = fm.replace(toolsMatch[0], replacement);
+  return content.replace(fmMatch[0], `---\n${newFm}\n---`);
+}
+
 function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checklists }) {
   const title = agentMeta.title || agentMeta.agentRole || toTitleCase(agentId);
   const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
@@ -1339,9 +1540,12 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
 
   // Use full tool list for all agents except orchestrator
   const agentSpecificTools = agentId === 'automation-tester' ? BROWSER_TOOLS : [];
+  // Merge any explicit MCP allow-lists declared in the source agent YAML under
+  // `mcp-tools.<server>-allow:` (e.g. figma-allow) into the resolved tool list.
+  const mcpAllowExtras = extractMcpAllowLists(agentMd || '');
   const toolList = agentId === 'aigile-orchestrator' 
     ? ['read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/textSearch', 'search/listDirectory', 'sequentialthinking/*'] 
-    : [...new Set([...FULL_AGENT_TOOLS, ...agentSpecificTools, ...tools])].sort();
+    : [...new Set([...FULL_AGENT_TOOLS, ...agentSpecificTools, ...tools, ...mcpAllowExtras])].sort();
   // Generate handoffs based on agent role
   const handoffs = generateHandoffsFor(agentId);
 
@@ -1351,11 +1555,8 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     `name: ${title}`,
     `description: "${description}"`,
     `argument-hint: "Describe your ${agentId} task"`,
-    'tools:'
+    formatToolsFrontmatter(toolList)
   ];
-  for (const t of toolList) {
-    fmLines.push(`  - ${t}`);
-  }
   fmLines.push('model: Claude Opus 4.6');
   fmLines.push('user-invokable: true');
 
@@ -1839,10 +2040,14 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
       const allTasks = listTasksForAgent(agentId);
       const allChecklists = []; // Use only agent-specific checklists from relevantDependencies()
 
-      // If already in native .agent.md format, copy directly
+      // If already in native .agent.md format, copy directly (rewriting the
+      // `tools:` block to the new two-line format for the orchestrator pair so
+      // its block-style YAML list becomes the canonical custom-agent format).
       if (isNativeAgent && !useLegacyFormat) {
         const outName = f;
-        write(path.join(outputDir, outName), agentMd);
+        const needsRewrite = (agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator');
+        const finalContent = needsRewrite ? rewriteAgentFrontmatterTools(agentMd) : agentMd;
+        write(path.join(outputDir, outName), finalContent);
         generatedAgents.push({ id: agentId, format: 'native' });
         continue;
       }
