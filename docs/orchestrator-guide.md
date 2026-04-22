@@ -2,6 +2,13 @@
 
 The AIgile Orchestrator is a **pure delegation controller** with **zero execution capability**. It coordinates specialist agents to deliver complex, multi-domain outcomes. This guide is the definitive reference for its behavior.
 
+## Available Orchestrator Modes
+
+| Agent | Mode | Description |
+|---|---|---|
+| `aigile-orchestrator` | Automatic | Plans and delegates to specialist agents without per-step user confirmation. |
+| `aigile-manual-orchestrator` | Human-in-the-loop | Same delegation contract, but calls `askQuestions` to confirm with the user before every delegation and before starting any workflow. |
+
 ---
 
 ## 1) Core Contract

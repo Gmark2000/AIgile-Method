@@ -5,6 +5,7 @@ bundle:
   description: Complete AIgile team with orchestrator and all specialist agents. Ideal for comprehensive enterprise development with full workflow coordination.
 agents:
   - aigile-orchestrator
+  - aigile-manual-orchestrator
   - aigile-master
   - analyst
   - architect
