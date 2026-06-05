@@ -1,0 +1,43 @@
+{
+  "_comment": "R7 — Budget-only JIT retrieval manifest (ADR-002). id -> path -> short summary. The budget orchestrator reads the summary first and fetches the full file only when the deterministic gate proves the summary is insufficient. Paths are relative to the installed .aigile-core/ tree. This file is budget-only and never edits shared core/ instruction frontmatter.",
+  "version": 1,
+  "tasks": [
+    { "id": "advanced-elicitation", "path": "tasks/advanced-elicitation.md", "summary": "Structured elicitation techniques to deepen requirements with the user." },
+    { "id": "check-story-implemented", "path": "tasks/check-story-implemented.md", "summary": "Assess whether a story's acceptance criteria are met by code+tests." },
+    { "id": "code-arch-review-with-github", "path": "tasks/code-arch-review-with-github.md", "summary": "Architecture/code review using GitHub repo context." },
+    { "id": "create-architecture-doc", "path": "tasks/create-architecture-doc.md", "summary": "Produce an architecture document from inputs." },
+    { "id": "create-jira-epic-from-confluence", "path": "tasks/create-jira-epic-from-confluence.md", "summary": "Generate a Jira epic from a Confluence source page." },
+    { "id": "create-jira-story-from-confluence", "path": "tasks/create-jira-story-from-confluence.md", "summary": "Generate a Jira story from a Confluence source page." },
+    { "id": "create-jira-story-from-text", "path": "tasks/create-jira-story-from-text.md", "summary": "Generate a Jira story from freeform text." },
+    { "id": "create-next-story", "path": "tasks/create-next-story.md", "summary": "Draft the next story file from epic/backlog state." },
+    { "id": "create-prd-doc", "path": "tasks/create-prd-doc.md", "summary": "Produce a PRD document." },
+    { "id": "create-stories-from-epic", "path": "tasks/create-stories-from-epic.md", "summary": "Decompose an epic into stories." },
+    { "id": "create-tasks-for-story", "path": "tasks/create-tasks-for-story.md", "summary": "Break a story into implementable tasks." },
+    { "id": "document-project", "path": "tasks/document-project.md", "summary": "Generate project documentation from the codebase." },
+    { "id": "execute-checklist", "path": "tasks/execute-checklist.md", "summary": "Run a named checklist and record pass/fail." },
+    { "id": "explain-story-from-jira", "path": "tasks/explain-story-from-jira.md", "summary": "Explain a Jira story as Given-When-Then for reviewers." },
+    { "id": "facilitate-brainstorming-session", "path": "tasks/facilitate-brainstorming-session.md", "summary": "Facilitate a structured brainstorming session." },
+    { "id": "figma-audit-design-system", "path": "tasks/figma-audit-design-system.md", "summary": "Audit a Figma design system for consistency." },
+    { "id": "front-end-spec-from-design", "path": "tasks/front-end-spec-from-design.md", "summary": "Derive a front-end spec from a design." },
+    { "id": "gate", "path": "tasks/gate.md", "summary": "Quality gate decision task (PASS/CONCERNS/FAIL/WAIVED)." },
+    { "id": "groom-jira-story", "path": "tasks/groom-jira-story.md", "summary": "Groom/refine a Jira story for readiness." },
+    { "id": "help", "path": "tasks/help.md", "summary": "List available commands and guidance." },
+    { "id": "implement-freeform-work-item", "path": "tasks/implement-freeform-work-item.md", "summary": "Implement a freeform work item pasted into chat." },
+    { "id": "implement-story-from-jira", "path": "tasks/implement-story-from-jira.md", "summary": "Implement a Jira story test-first in small commits." },
+    { "id": "implement-unit-tests", "path": "tasks/implement-unit-tests.md", "summary": "Add/improve unit tests for a module or scope." },
+    { "id": "market-research-from-context7", "path": "tasks/market-research-from-context7.md", "summary": "Market research using Context7 docs." },
+    { "id": "review-story", "path": "tasks/review-story.md", "summary": "Review a story implementation for completeness." },
+    { "id": "sonarqube-hotspot-review", "path": "tasks/sonarqube-hotspot-review.md", "summary": "Review SonarQube hotspots and propose fixes." },
+    { "id": "standup-digest", "path": "tasks/standup-digest.md", "summary": "Produce a standup digest from recent activity." },
+    { "id": "sync-jira-backlog", "path": "tasks/sync-jira-backlog.md", "summary": "Synchronize the Jira backlog state." },
+    { "id": "test-design", "path": "tasks/test-design.md", "summary": "Design test cases and levels for a feature." },
+    { "id": "validate-next-story", "path": "tasks/validate-next-story.md", "summary": "Validate a drafted story before development." },
+    { "id": "verify-jira-story-e2e", "path": "tasks/verify-jira-story-e2e.md", "summary": "Verify a Jira story end-to-end." }
+  ],
+  "instructions": [
+    { "id": "agent-comms", "path": "instructions/agent-comms.skill.md", "summary": "Internal inter-agent compression rules for budget returns." },
+    { "id": "csharp", "path": "instructions/csharp.instructions.md", "summary": "C# coding conventions." },
+    { "id": "java", "path": "instructions/java.instructions.md", "summary": "Java coding conventions." },
+    { "id": "spring-boot", "path": "instructions/spring-boot.instructions.md", "summary": "Spring Boot coding conventions." }
+  ]
+}

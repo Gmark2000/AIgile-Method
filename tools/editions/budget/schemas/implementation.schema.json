@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aigile-budget/implementation.schema.json",
+  "title": "IMPL artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "plan_ref", "changed_files", "guardrails"],
+  "properties": {
+    "artifact_id": { "type": "string", "pattern": "^IMPL-\\d{4}-\\d{2}-\\d{2}-\\d{3}$" },
+    "plan_ref": { "type": "string", "pattern": "^PLAN-" },
+    "changed_files": { "type": "array", "items": { "type": "string" } },
+    "diff_summary": { "type": "array", "items": { "type": "string" } },
+    "tests_added": { "type": "array", "items": { "type": "string" } },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit_tests", "lint", "security_scan", "schema_validation", "diff_sanity"],
+      "properties": {
+        "unit_tests": { "enum": ["pass", "fail", "skip", "unknown"] },
+        "lint": { "enum": ["pass", "fail", "skip", "unknown"] },
+        "security_scan": { "enum": ["pass", "fail", "skip", "unknown"] },
+        "schema_validation": { "enum": ["pass", "fail", "skip", "unknown"] },
+        "diff_sanity": { "enum": ["pass", "fail", "skip", "unknown"] }
+      }
+    },
+    "needs_followup": { "type": "boolean" }
+  }
+}

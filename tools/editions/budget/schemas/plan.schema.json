@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aigile-budget/plan.schema.json",
+  "title": "PLAN artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "scope", "acceptance_criteria", "handoff_target"],
+  "properties": {
+    "artifact_id": { "type": "string", "pattern": "^PLAN-\\d{4}-\\d{2}-\\d{2}-\\d{3}$" },
+    "scope": { "type": "string", "minLength": 1, "maxLength": 600 },
+    "acceptance_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "constraints": { "type": "array", "items": { "type": "string" } },
+    "stop_signals": { "type": "array", "items": { "type": "string" } },
+    "handoff_target": { "type": "string", "minLength": 1 }
+  }
+}

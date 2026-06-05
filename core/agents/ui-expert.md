@@ -40,7 +40,7 @@ commands:
   - exit
 mcp-tools:
   required: [sequentialthinking, context7, figma]
-  optional: [github.com, git01cj001.bt.wan]
+  optional: [github.com]
   # Explicit allow-list of granular Figma MCP tools (quoted as `serverName/toolName`
   # in generated `.agent.md` `tools:` frontmatter). Covers visual system, components,
   # design tokens, and Code Connect mappings. Excludes flow/diagram tools (UX scope)

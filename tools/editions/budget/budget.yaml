@@ -1,0 +1,171 @@
+# AIgile Budget Edition — single source of truth
+#
+# Lives under tools/editions/ (NOT core/) so it is shipped with the package but
+# never copied into a consumer's .aigile-core tree. That keeps the full ("Full
+# Power") edition's installed output byte-for-byte unchanged: full never reads
+# this file, and it is not added to either edition's .aigile-core.
+#
+# Merged into the resolved config ONLY when the budget edition is selected, and
+# merged LAST so these values win over any legacy budget block. JS fallback
+# mirror: tools/editions/budget/defaults.js.
+#
+# Beast-mode token optimization (ADR-001 §4): no budget agent defaults to a
+# Powerful-tier model (GPT-5.5) or to Claude Opus / Sonnet. Cheapest-correct
+# tier per agent; premium models are escalation-only.
+editions:
+  profiles:
+    budget:
+      modelProfile: budget-2026-06
+      mcpProfile: budget
+      promptProfile: budget
+      # Context caps (token guardrails) — kept tight for the budget edition.
+      maxToolResultTokens: 800
+      subagentReturnTokens: 250
+      compressionSkill: agent-comms
+      # Billing model the budget edition optimizes for. Copilot's token-based
+      # billing makes cheapest-correct-tier routing the primary lever.
+      costProfile: per-token
+models:
+  profiles:
+    budget-2026-06:
+      # Cheapest included-tier default for any unlisted agent.
+      default: GPT-5 mini
+      overrides:
+        # Router-only orchestrators: included tier, near-zero marginal cost.
+        aigile-orchestrator: GPT-5 mini
+        aigile-manual-orchestrator: GPT-5 mini
+        aigile-budget-orchestrator: GPT-5 mini
+        # Planning / story / flow text: included tier.
+        analyst: GPT-5 mini
+        pm: GPT-5 mini
+        po: GPT-5 mini
+        sm: GPT-5 mini
+        ux-expert: GPT-5 mini
+        # Trivial extraction: cheapest output.
+        code-tour: GPT-5.4 nano
+        # Tool-heavy implementation/specialists: 1x sweet spot.
+        dev: GPT-5.4 mini
+        qa: GPT-5.4 mini
+        automation-tester: GPT-5.4 mini
+        ui-expert: GPT-5.4 mini
+        expert-react-frontend-engineer: GPT-5.4 mini
+        mvel-workflow-engineer: GPT-5.4 mini
+        devops: GPT-5.4 mini
+        # Deterministic scans first; sign-off escalates.
+        security: GPT-5.4 mini
+        # Quality when genuinely needed; not always-on premium.
+        architect: GPT-5.4 mini
+      escalation:
+        # Irreversible / high-risk only, ask-before-escalate.
+        premium: Claude Opus 4.6
+      # R5 — Model cascade: cheapest-first, escalate one tier on guardrail failure,
+      # ask before premium. Mirrored in defaults.js; asserted by validate-editions.
+      # NB: the minimal YAML parser does not strip trailing inline comments, so
+      # every value below is kept comment-free on its own line.
+      cascade:
+        # always begin at the agent's tier-map tier
+        start: base
+        # bump exactly one tier on a hard guardrail failure
+        on_guardrail_fail: tier++
+        # then checkpoint with the user
+        max_auto_escalations: 2
+        # never auto-jump to the premium escalation model
+        premium_requires_user: true
+      # R3 — Per-agent decoding tuning. reasoning_effort/verbosity/max_output_tokens
+      # tuned to the cheapest setting that keeps the agent correct. Reasoning is
+      # reserved for security/architect only. Mirrored in defaults.js. Block style
+      # is required by the minimal YAML parser (no inline flow maps).
+      params:
+        aigile-orchestrator:
+          reasoning_effort: low
+          verbosity: low
+          max_output_tokens: 400
+        aigile-budget-orchestrator:
+          reasoning_effort: low
+          verbosity: low
+          max_output_tokens: 400
+        aigile-manual-orchestrator:
+          reasoning_effort: low
+          verbosity: low
+          max_output_tokens: 400
+        code-tour:
+          reasoning_effort: low
+          verbosity: low
+          max_output_tokens: 300
+        analyst:
+          reasoning_effort: low
+          verbosity: medium
+          max_output_tokens: 600
+        pm:
+          reasoning_effort: low
+          verbosity: medium
+          max_output_tokens: 600
+        po:
+          reasoning_effort: low
+          verbosity: medium
+          max_output_tokens: 600
+        sm:
+          reasoning_effort: low
+          verbosity: medium
+          max_output_tokens: 600
+        ux-expert:
+          reasoning_effort: low
+          verbosity: medium
+          max_output_tokens: 600
+        dev:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 1200
+        qa:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 800
+        automation-tester:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 800
+        ui-expert:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 800
+        expert-react-frontend-engineer:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 1000
+        mvel-workflow-engineer:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 800
+        devops:
+          reasoning_effort: medium
+          verbosity: low
+          max_output_tokens: 800
+        security:
+          reasoning_effort: high
+          verbosity: low
+          max_output_tokens: 1000
+        architect:
+          reasoning_effort: high
+          verbosity: medium
+          max_output_tokens: 1500
+      # Cost-tier per agent for token-based billing (included < 1x < 3x < 15x).
+      # Prefer the cheapest tier that is correct; escalate only when required.
+      tiers:
+        aigile-orchestrator: included
+        aigile-manual-orchestrator: included
+        aigile-budget-orchestrator: included
+        analyst: included
+        pm: included
+        po: included
+        sm: included
+        ux-expert: included
+        code-tour: included
+        dev: 1x
+        qa: 1x
+        automation-tester: 1x
+        ui-expert: 1x
+        expert-react-frontend-engineer: 1x
+        mvel-workflow-engineer: 1x
+        devops: 1x
+        security: 1x
+        architect: 3x

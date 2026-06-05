@@ -4,6 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface, emitKeypressEvents } from 'node:readline';
 import { printInstallBanner } from './shared/bannerArt.js';
+import { resolveEditionStrategy } from './editions/index.js';
+import { EDITION_BUDGET, EDITION_FULL, parseEditionArgs } from './shared/editions.js';
+import { normalizeMcpProfile } from './shared/mcpProfiles.js';
+import { modelMetadataLines, readCoreConfig, readLocalModelOverrides, resolveEditionProfile } from './shared/modelProfiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -306,9 +310,76 @@ async function multiSelectPrompt({ title, options, defaults = [] }) {
   });
 }
 
-async function installInteractive({ autoYes = false }) {
+async function singleSelectPrompt({ title, options, defaultValue }) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) {
+      resolve(defaultValue);
+      return;
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    emitKeypressEvents(process.stdin, rl);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+    let index = Math.max(0, options.findIndex((option) => option.value === defaultValue));
+
+    const render = () => {
+      const lines = [];
+      lines.push(`\n${title}`);
+      lines.push('Use Up/Down to move, Enter to confirm');
+      for (let i = 0; i < options.length; i++) {
+        const option = options[i];
+        const cursor = i === index ? '>' : ' ';
+        lines.push(` ${cursor} ${option.label}`);
+      }
+      rl.output.write('\x1b[2J\x1b[0f');
+      rl.output.write(lines.join('\n'));
+    };
+
+    const cleanup = () => {
+      process.stdin.off('keypress', onKey);
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      rl.close();
+      console.log();
+    };
+
+    const onKey = (_str, key) => {
+      if (key.name === 'down') { index = (index + 1) % options.length; render(); }
+      else if (key.name === 'up') { index = (index - 1 + options.length) % options.length; render(); }
+      else if (key.name === 'return' || (key.ctrl && key.name === 'm')) {
+        cleanup();
+        resolve(options[index].value);
+      } else if (key.ctrl && key.name === 'c') {
+        cleanup();
+        resolve(defaultValue);
+      }
+    };
+
+    process.stdin.on('keypress', onKey);
+    render();
+  });
+}
+
+function shouldPromptForEdition(context, { autoYes = false } = {}) {
+  return !autoYes && process.stdin.isTTY && !context.editionSource;
+}
+
+async function installInteractive({ autoYes = false, installContext = null } = {}) {
   const dest = process.cwd();
+  const editionArgv = process.argv.slice(3);
+  let context = installContext || resolveInstallContext(dest, editionArgv);
   printInstallBanner({ showGMSignature: true });
+
+  if (shouldPromptForEdition(context, { autoYes })) {
+    const selectedEdition = await singleSelectPrompt({
+      title: 'Select AIgile edition:',
+      options: [
+        { label: 'Full Power (default/recommended)', value: EDITION_FULL },
+        { label: 'Budget', value: EDITION_BUDGET },
+      ],
+      defaultValue: EDITION_FULL,
+    });
+    context = resolveInstallContext(dest, [...editionArgv, '--edition', selectedEdition]);
+  }
 
   // ── CLI flag overrides ──
   const forcedCopilot = process.argv.includes('--for-copilot');
@@ -364,7 +435,7 @@ async function installInteractive({ autoYes = false }) {
   // ── Run platform-specific installers ──
   let antigravityResult = null;
   if (installCopilot) {
-    installGithubCopilot(dest, { addJavaInstructions });
+    installGithubCopilot(dest, { addJavaInstructions, installContext: context });
   }
   if (installAntigravityFlag) {
     antigravityResult = installAntigravity(dest);
@@ -374,9 +445,9 @@ async function installInteractive({ autoYes = false }) {
   maybeAddConsumerScripts(dest);
   if (process.argv.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
+  if (addMcpJson) writeMcpJson(dest, context.editionProfile.mcpProfile);
   if (installCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: installAntigravityFlag });
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: installAntigravityFlag, installContext: context });
 
   // ── Print summary ──
   try {
@@ -440,6 +511,75 @@ function toTitleCase(str) {
 function readJsonIfExists(p) {
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(read(p)); } catch { return null; }
+}
+
+// Resolve the active install context (edition, model/mcp profiles, merged
+// config). The full edition resolves a null strategy and runs the literal,
+// frozen full-power code path unchanged; only the budget edition resolves a
+// strategy that merges its own config last.
+function resolveInstallContext(dest, argv = [], env = process.env) {
+  const existingManifest = readJsonIfExists(path.join(dest, '.aigile-manifest.json'));
+  const parsed = parseEditionArgs(argv, env, existingManifest);
+  const baseConfig = readCoreConfig(root);
+  const editionForStrategy = parsed.edition || baseConfig?.editions?.default;
+  const strategy = resolveEditionStrategy(editionForStrategy);
+  const config = strategy?.mergeConfig ? strategy.mergeConfig(baseConfig, root) : baseConfig;
+  const modelProfile = parsed.modelProfile || null;
+  const mcpProfile = parsed.mcpProfile ? normalizeMcpProfile(parsed.mcpProfile) : null;
+
+  if (modelProfile && !config?.models?.profiles?.[modelProfile]) {
+    throw new Error(`Unknown model profile "${modelProfile}".`);
+  }
+
+  const editionProfile = resolveEditionProfile(config, parsed.edition, { modelProfile, mcpProfile });
+  editionProfile.mcpProfile = normalizeMcpProfile(editionProfile.mcpProfile);
+
+  if (!config?.models?.profiles?.[editionProfile.modelProfile]) {
+    throw new Error(`Unknown model profile "${editionProfile.modelProfile}".`);
+  }
+
+  return {
+    ...parsed,
+    existingManifest,
+    config,
+    strategy,
+    editionProfile,
+    localModelOverrides: readLocalModelOverrides(dest),
+  };
+}
+
+// Read the canonical agent roster for an edition from core/agent-teams.
+// Budget uses team-budget.yaml; full has no team file, so this returns [] and
+// the caller ships every agent (frozen full-power behavior).
+function readTeamAgentIds(edition) {
+  const teamFile = edition === EDITION_BUDGET ? 'team-budget.yaml' : 'team-full.yaml';
+  const teamPath = path.join(root, 'core', 'agent-teams', teamFile);
+  if (!fs.existsSync(teamPath)) return [];
+  const ids = [];
+  let inAgents = false;
+  for (const line of read(teamPath).split(/\r?\n/)) {
+    if (/^agents\s*:/.test(line)) { inAgents = true; continue; }
+    if (!inAgents) continue;
+    if (/^\S/.test(line) && !/^\s*-\s+/.test(line)) break;
+    const item = line.match(/^\s*-\s+(.+?)\s*(?:#.*)?$/);
+    if (item) ids.push(canonicalAgentId(item[1].trim().replace(/^['"]|['"]$/g, '')));
+  }
+  return ids;
+}
+
+// Inject edition model metadata lines into an existing agent's frontmatter,
+// replacing any pre-existing model/x-aigile keys. Used for the budget edition
+// only; the full edition passes no metadata so frontmatter is untouched.
+function applyAgentFrontmatterMetadata(content, metadataLines = []) {
+  if (!metadataLines.length) return content;
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) return content;
+  const metadataKeyRe = /^(model|x-aigile-edition|x-aigile-model-profile|x-aigile-escalate-to|x-aigile-max-return-tokens):/;
+  const lines = fmMatch[1].split(/\r?\n/).filter((line) => !metadataKeyRe.test(line.trim()));
+  let insertAt = lines.findIndex((line) => /^user-invo[ck]able\s*:/.test(line.trim()));
+  if (insertAt === -1) insertAt = lines.length;
+  lines.splice(insertAt, 0, ...metadataLines);
+  return content.replace(fmMatch[0], `---\n${lines.join('\n')}\n---`);
 }
 
 function buildMcpCatalog() {
@@ -1493,7 +1633,7 @@ function rewriteAgentFrontmatterTools(content) {
   return content.replace(fmMatch[0], `---\n${newFm}\n---`);
 }
 
-function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checklists }) {
+function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checklists, modelMetadata = [] }) {
   const title = agentMeta.title || agentMeta.agentRole || toTitleCase(agentId);
   const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
   const metaName = agentMeta.name || title;
@@ -1557,7 +1697,11 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
     `argument-hint: "Describe your ${agentId} task"`,
     formatToolsFrontmatter(toolList)
   ];
-  fmLines.push('model: Claude Opus 4.6');
+  if (modelMetadata.length) {
+    fmLines.push(...modelMetadata);
+  } else {
+    fmLines.push('model: Claude Opus 4.6');
+  }
   fmLines.push('user-invokable: true');
 
   if (handoffs.length > 0) {
@@ -2011,13 +2155,22 @@ function installAntigravity(dest) {
   return { rules: generatedRules.length, workflows: wfCount };
 }
 
-function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyFormat = false } = {}) {
+function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyFormat = false, installContext = null } = {}) {
+  const context = installContext || resolveInstallContext(dest, process.argv.slice(3));
+  const isBudget = context.editionProfile.edition === EDITION_BUDGET;
+  // Edition content-selection overlay (budget only; null = copy everything, the
+  // frozen full-power behavior).
+  const contentFilter = context.strategy?.contentFilter ? context.strategy.contentFilter(root) : null;
   // 1) Copy core to .aigile-core (clean, IDE-friendly)
   const srcCore = path.join(root, 'core');
   const dstCore = path.join(dest, '.aigile-core');
   if (fs.existsSync(srcCore)) {
-    copyDir(srcCore, dstCore);
+    copyDir(srcCore, dstCore, contentFilter?.coreFilter || undefined);
   }
+  // Budget-only additive copy: ship the budget filters/, schemas/, and
+  // budget-manifest.json into .aigile-core/. Guarded so the full-power path
+  // runs zero extra writes and stays byte-for-byte stable.
+  if (isBudget) context.strategy?.installExtras?.({ root, dest });
   // 2) Generate GitHub Copilot custom agents in .github/agents/ (new format)
   //    Or legacy chatmodes in .github/chatmodes/ if explicitly requested
   const agentsDir = path.join(srcCore, 'agents');
@@ -2027,18 +2180,54 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
   fs.mkdirSync(outputDir, { recursive: true });
   const mcpCatalog = buildMcpCatalog();
   const generatedAgents = [];
+  // Track the agent output filenames this run manages, so an edition switch can
+  // prune agents that the previous edition installed but the current one omits
+  // (e.g. full-only agents dropped when switching to the budget roster).
+  const writtenAgentFiles = [];
   if (fs.existsSync(agentsDir)) {
     const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+    // Budget edition: restrict to the team-budget roster (full ships everything).
+    let allowedCanonicalIds = null;
+    if (isBudget) {
+      const teamIds = new Set(readTeamAgentIds(EDITION_BUDGET));
+      if (teamIds.size) allowedCanonicalIds = teamIds;
+    }
+    const metaFor = (id) => isBudget
+      ? modelMetadataLines({
+          agentId: id,
+          config: context.config,
+          editionProfile: context.editionProfile,
+          cliAgentModelOverrides: context.agentModelOverrides || {},
+          env: process.env,
+          localModelOverrides: context.localModelOverrides,
+        })
+      : [];
     for (const f of files) {
       const agentPath = path.join(agentsDir, f);
       const agentMd = read(agentPath);
       // Handle both new .agent.md and legacy .md formats
       const isNativeAgent = f.endsWith('.agent.md');
       const agentId = isNativeAgent ? f.replace(/\.agent\.md$/, '') : f.replace(/\.[^/.]+$/, '');
+      const canonicalId = canonicalAgentId(agentId);
+      if (allowedCanonicalIds && !allowedCanonicalIds.has(canonicalId)) continue;
       const agentMeta = extractAgentMeta(agentMd);
       const tools = [];
       const allTasks = listTasksForAgent(agentId);
       const allChecklists = []; // Use only agent-specific checklists from relevantDependencies()
+
+      // Budget orchestrator variant: rebuild as a cache-native budget agent.
+      if (isBudget && !useLegacyFormat && isNativeAgent &&
+          context.strategy?.shouldUseVariant?.(canonicalId, context.editionProfile)) {
+        const outContent = context.strategy.buildOrchestrator({
+          agentId: canonicalId,
+          metadataLines: metaFor(canonicalId),
+          editionProfile: context.editionProfile,
+        });
+        write(path.join(outputDir, f), outContent);
+        generatedAgents.push({ id: agentId, format: 'budget-agent' });
+        writtenAgentFiles.push(f);
+        continue;
+      }
 
       // If already in native .agent.md format, copy directly (rewriting the
       // `tools:` block to the new two-line format for the orchestrator pair so
@@ -2046,9 +2235,11 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
       if (isNativeAgent && !useLegacyFormat) {
         const outName = f;
         const needsRewrite = (agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator');
-        const finalContent = needsRewrite ? rewriteAgentFrontmatterTools(agentMd) : agentMd;
+        let finalContent = needsRewrite ? rewriteAgentFrontmatterTools(agentMd) : agentMd;
+        if (isBudget) finalContent = applyAgentFrontmatterMetadata(finalContent, metaFor(canonicalId));
         write(path.join(outputDir, outName), finalContent);
         generatedAgents.push({ id: agentId, format: 'native' });
+        writtenAgentFiles.push(outName);
         continue;
       }
 
@@ -2069,21 +2260,39 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
           tools,
           tasks: allTasks,
           checklists: allChecklists,
+          modelMetadata: metaFor(canonicalId),
         });
       const outName = useLegacyFormat
         ? `${kebabCaseName(f)}.chatmode.md`
         : `${kebabCaseName(f)}.agent.md`;
       write(path.join(outputDir, outName), outContent);
       generatedAgents.push({ id: agentId, format: useLegacyFormat ? 'chatmode' : 'agent' });
+      writtenAgentFiles.push(outName);
     }
   }
+  // Prune managed agents from a previous edition that the current edition no
+  // longer installs. Only files the installer previously managed are removed
+  // (recorded in the manifest), so user-authored agents are never touched. On a
+  // first install or a same-edition reinstall the managed set is unchanged, so
+  // the full-power path performs no deletions and stays byte-for-byte stable.
+  const previouslyManaged = Array.isArray(context.existingManifest?.managedAgents)
+    ? context.existingManifest.managedAgents
+    : [];
+  const currentManaged = new Set(writtenAgentFiles);
+  for (const prev of previouslyManaged) {
+    if (currentManaged.has(prev)) continue;
+    if (typeof prev !== 'string' || prev.includes('/') || prev.includes('\\')) continue;
+    const stalePath = path.join(outputDir, prev);
+    if (fs.existsSync(stalePath)) fs.rmSync(stalePath, { force: true });
+  }
+  context.managedAgents = writtenAgentFiles;
   console.log(`✅ Created ${generatedAgents.length} custom ${useLegacyFormat ? 'chatmodes' : 'agents'} in ${useLegacyFormat ? '.github/chatmodes' : '.github/agents'}/`);
   // Copy core prompts into consumer .github/prompts for convenience (if provided in repo)
   try {
     const promptsSrc = path.join(root, 'core', 'prompts');
     const promptsDst = path.join(dest, '.github', 'prompts');
     if (fs.existsSync(promptsSrc)) {
-      copyDir(promptsSrc, promptsDst);
+      copyDir(promptsSrc, promptsDst, contentFilter?.promptFilter || undefined);
       console.log('✅ Copied prompts to .github/prompts');
     }
   } catch (e) { /* non-fatal */ }
@@ -2130,12 +2339,18 @@ function maybeAddConsumerScripts(dest) {
   } catch { /* ignore */ }
 }
 
-function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false, forAntigravity = false } = {}) {
+function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false, forAntigravity = false, installContext = null } = {}) {
   try {
+    const context = installContext || resolveInstallContext(dest, process.argv.slice(3));
     const manifest = {
       name: '@mark-gozner/aigile-method',
       version: getPackageVersion(),
       installedAt: new Date().toISOString(),
+      edition: context.editionProfile.edition,
+      editionSource: context.editionSource || 'default',
+      modelProfile: context.editionProfile.modelProfile,
+      mcpProfile: context.editionProfile.mcpProfile,
+      promptProfile: context.editionProfile.promptProfile,
       format: 'agents', // New format indicator
       agents: [],
       customAgents: 0,
@@ -2150,6 +2365,9 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
         mcp: !!addMcpJson
       }
     };
+    if (context.explicitEdition && context.existingManifest?.edition && context.existingManifest.edition !== context.editionProfile.edition) {
+      manifest.previousEdition = context.existingManifest.edition;
+    }
     const agentsDir = path.join(dest, '.aigile-core', 'agents');
     if (fs.existsSync(agentsDir)) {
       manifest.agents = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).map(f => f.replace(/\\.agent\\.md$/, '').replace(/\\.md$/, ''));
@@ -2158,6 +2376,13 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
     const customAgentsDir = path.join(dest, '.github', 'agents');
     if (fs.existsSync(customAgentsDir)) {
       manifest.customAgents = fs.readdirSync(customAgentsDir).filter(f => f.endsWith('.agent.md')).length;
+    }
+    // Record the agent files this installer manages so a later edition switch
+    // can prune the ones a new edition omits without touching user-authored agents.
+    if (Array.isArray(context.managedAgents)) {
+      manifest.managedAgents = context.managedAgents;
+    } else if (fs.existsSync(customAgentsDir)) {
+      manifest.managedAgents = fs.readdirSync(customAgentsDir).filter(f => f.endsWith('.agent.md'));
     }
     // Count legacy chatmodes
     const chatModesDir = path.join(dest, '.github', 'chatmodes');
@@ -2297,11 +2522,21 @@ function writeMockMcp(dest) {
   console.log('✅ Updated .vscode/settings.json with mock MCP servers');
 }
 
-function writeMcpJson(dest) {
+function writeMcpJson(dest, mcpProfile = 'full') {
   // Install MCP servers by copying from repo mcp/servers.json into .vscode/mcp.json (preferred)
   const vscodeDir = path.join(dest, '.vscode');
   fs.mkdirSync(vscodeDir, { recursive: true });
   const mcpPath = path.join(vscodeDir, 'mcp.json');
+  // Budget edition: ship the leaner budget catalog (placeholder hosts, opt-in
+  // gallery servers disabled by default). Full edition is unchanged.
+  if (mcpProfile === 'budget') {
+    const repoBudgetJson = path.join(root, 'mcp', 'servers.budget.json');
+    if (fs.existsSync(repoBudgetJson)) {
+      write(mcpPath, read(repoBudgetJson));
+      console.log('✅ Installed budget MCP servers from mcp/servers.budget.json into .vscode/mcp.json');
+      return;
+    }
+  }
   const repoServersJson = path.join(root, 'mcp', 'servers.json');
   if (fs.existsSync(repoServersJson)) {
     write(mcpPath, read(repoServersJson));
@@ -2376,9 +2611,10 @@ else if (cmd === 'install') {
   if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag || forAntigravityFlag || forCopilotFlag) {
     printInstallBanner({ showGMSignature: true });
     const dest = process.cwd();
+    const installContext = resolveInstallContext(dest, process.argv.slice(3));
     const doCopilot = forCopilotFlag || !forAntigravityFlag; // default to copilot unless only antigravity is requested
     if (doCopilot) {
-      installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag });
+      installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag, installContext });
     }
     if (forAntigravityFlag) {
       installAntigravity(dest);
@@ -2386,9 +2622,9 @@ else if (cmd === 'install') {
     maybeAddConsumerScripts(dest);
     if (flags.has('--prune-legacy')) pruneLegacy(dest);
     if (addMcpSettingsFlag) writeMockMcp(dest);
-    if (addMcpJsonFlag) writeMcpJson(dest);
+    if (addMcpJsonFlag) writeMcpJson(dest, installContext.editionProfile.mcpProfile);
     if (doCopilot) writeVscodeSettings(dest);
-    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: forAntigravityFlag });
+    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: forAntigravityFlag, installContext });
   } else {
     await installInteractive({ autoYes });
   }
@@ -2419,19 +2655,20 @@ else if (cmd === 'init' || !cmd) {
   // Proceed with install (non-interactive by default)
   printInstallBanner({ showGMSignature: true });
   const dest = process.cwd();
+  const installContext = resolveInstallContext(dest, process.argv.slice(2).filter(a => a !== 'init'));
   const addMcpJson = passThrough.has('--with-mcp');
   const addMcpSettings = passThrough.has('--with-mcp-settings');
   const addJavaInstructions = passThrough.has('--with-java-instructions');
   const forAntigravity = passThrough.has('--for-antigravity');
   const forCopilot = passThrough.has('--for-copilot') || !forAntigravity;
-  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions, installContext });
   if (forAntigravity) installAntigravity(dest);
   maybeAddConsumerScripts(dest);
   if (passThrough.has('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
+  if (addMcpJson) writeMcpJson(dest, installContext.editionProfile.mcpProfile);
   if (forCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity, installContext });
   console.log('✅ Init complete');
 }
 else if (cmd === 'auth-install') {
@@ -2440,19 +2677,20 @@ else if (cmd === 'auth-install') {
   printInstallBanner({ showGMSignature: true });
   const dest = process.cwd();
   const argvRest = process.argv.slice(3);
+  const installContext = resolveInstallContext(dest, argvRest);
   const addMcpJson = argvRest.includes('--with-mcp');
   const addMcpSettings = argvRest.includes('--with-mcp-settings');
   const addJavaInstructions = argvRest.includes('--with-java-instructions');
   const forAntigravity = argvRest.includes('--for-antigravity');
   const forCopilot = argvRest.includes('--for-copilot') || !forAntigravity;
-  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions, installContext });
   if (forAntigravity) installAntigravity(dest);
   maybeAddConsumerScripts(dest);
   if (argvRest.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
+  if (addMcpJson) writeMcpJson(dest, installContext.editionProfile.mcpProfile);
   if (forCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity, installContext });
   console.log('✅ Install complete');
 }
 else {

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aigile-budget/request.schema.json",
+  "title": "RESEARCH artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "objective", "files", "ready_for_plan"],
+  "properties": {
+    "artifact_id": { "type": "string", "pattern": "^RESEARCH-\\d{4}-\\d{2}-\\d{2}-\\d{3}$" },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 400 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "ready_for_plan": { "type": "boolean" }
+  }
+}

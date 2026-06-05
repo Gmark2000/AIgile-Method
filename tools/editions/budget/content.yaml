@@ -1,0 +1,18 @@
+# AIgile Budget Edition — content selection overlay
+#
+# Lives under tools/editions/ (NOT core/) so it is never copied into a
+# consumer's .aigile-core tree, keeping full-power output byte-for-byte
+# unchanged.
+#
+# Declarative include/exclude for the budget edition's .aigile-core copy and
+# prompt copy. This is a SELECTION overlay applied at install time only; it
+# never deletes shared source files (full power copies everything unchanged).
+#
+# Capability-preservation policy: the budget edition intentionally ships the
+# SAME tasks, workflows, templates, checklists, data, instructions, and prompts
+# as full power. Token savings come from model tiers, context caps, compression,
+# and CLI-first MCP policy — NOT from removing budget agents/tools/tasks/
+# workflows. Both lists are therefore empty by default. Add glob patterns here
+# only if a future change explicitly trims budget content.
+excludeCore: []
+excludePrompts: []

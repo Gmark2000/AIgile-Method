@@ -16,6 +16,9 @@
     "bundle": "node tools/cli.js bundle",
     "build": "node tools/cli.js bundle",
     "validate": "node tools/cli.js bundle && node tools/validate-bundles.js",
+    "validate:editions": "node tools/validate-editions.js",
+    "budget:audit": "node tools/editions/budget/audit.mjs",
+    "budget:schema-smoke": "node tools/editions/budget/schema-smoke.mjs",
     "prepublishOnly": "npm run build",
     "pack:dry-run": "npm pack --dry-run",
     "release:patch": "npm version patch && npm publish",
@@ -60,6 +63,9 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
   },
   "files": [
     "core/",

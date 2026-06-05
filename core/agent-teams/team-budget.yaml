@@ -1,0 +1,26 @@
+# <!-- Powered by AIgile Core -->
+bundle:
+  name: Team Budget
+  icon: B
+  description: Token-lean AIgile team with the budget orchestrator and core delivery specialists.
+agents:
+  - aigile-budget-orchestrator
+  - aigile-manual-orchestrator
+  - analyst
+  - architect
+  - dev
+  - pm
+  - po
+  - qa
+  - sm
+  - ui-expert
+  - ux-expert
+  - devops
+  - automation-tester
+  - security
+  - mvel-workflow-engineer
+  - code-tour
+  - expert-react-frontend-engineer
+workflows:
+  - greenfield-fullstack.yaml
+  - brownfield-fullstack.yaml
