@@ -1,7 +1,7 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.4.2",
-  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (GitHub Copilot, Google Antigravity & Kiro), handoffs, and delegation",
+  "version": "1.5.0",
+  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (Claude Code, GitHub Copilot, Google Antigravity & Kiro), skills, workflows, handoffs, and delegation",
   "private": false,
   "license": "SEE LICENSE",
   "bin": {
@@ -27,9 +27,15 @@
     "aigile:install": "aigile-method install --yes",
     "aigile:bundle": "aigile-method bundle",
     "aigile:status": "aigile-method status",
-    "aigile:list": "aigile-method list:agents"
+    "aigile:list": "aigile-method list:agents",
+    "aigile:plugin": "node tools/cli.js bundle"
   },
   "keywords": [
+    "claude-code-plugin",
+    "subagents",
+    "anthropic",
+    "claude",
+    "claude-code",
     "kiro",
     "kiro-ide",
     "agent-skills",
@@ -72,6 +78,8 @@
     "mcp/",
     "tools/",
     "dist/",
+    ".claude-plugin/",
+    "plugin/",
     "LICENSE*",
     "README.md",
     "CHANGELOG.md",

@@ -13,6 +13,34 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ### Removed
 
+## [1.5.0] - 2026-08-22
+### Added
+- **Claude Code support (`--for-claude`)** — the installer now generates a complete, out-of-the-box AIgile agent team for [Claude Code](https://code.claude.com):
+  - `.claude/agents/<agent>.md` — one [subagent](https://code.claude.com/docs/en/sub-agents) per role, delegated to with the `Task` tool (`subagent_type: "qa"`). Specialists omit the `tools:` key so they inherit the full session toolset including any MCP servers the user has configured; the two orchestrators are restricted to `Read, Glob, Grep, Task, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so delegation-only is enforced by the toolset and not only by the prompt. Role-relevant AIgile skills are preloaded through the `skills:` frontmatter field.
+  - `.claude/skills/` — 44 skills: the four AIgile skills, one workflow skill per agent command (`/aigile-dev-develop-story`, `/aigile-po-create-story`, `/aigile-qa-quality-gate`, ...), one per delivery workflow (`/aigile-workflow-greenfield-fullstack`, ...), and `/aigile` as the routing index. Workflow skills set `disable-model-invocation: true` and take free-form context as `$ARGUMENTS`.
+  - `CLAUDE.md` — the always-on project context, written between `<!-- AIGILE:START -->` / `<!-- AIGILE:END -->` markers so re-running the installer replaces only the AIgile block and leaves everything you wrote around it untouched.
+  - `.claude/settings.json` — merged rather than overwritten; the installer only adds read permissions for `.aigile-core/`.
+  - `.mcp.json` when combined with `--with-mcp`, converted from `mcp/servers.json` (Claude Code uses the `mcpServers` key and has no VS Code `${input:...}` prompts, so those become plain `${ENV_VAR}` references, and the installer prints which variables to set).
+- **Claude Code plugin distribution.** `aigile bundle` now also generates `plugin/` (a self-contained Claude Code plugin, including its own copy of the task/template/checklist library reached through `${CLAUDE_PLUGIN_ROOT}`) and `.claude-plugin/marketplace.json`. Users can install the whole team with no npm step:
+  ```
+  /plugin marketplace add Gmark2000/AIgile-Method
+  /plugin install aigile@aigile-method
+  ```
+  Plugin skills are namespaced by Claude Code, so they drop the redundant `aigile-` prefix: `/aigile:method`, `/aigile:dev-develop-story`, `/aigile:workflow-greenfield-fullstack`.
+- **Claude Code skill overrides (`core/skills-claude/`).** A skill placed here replaces the same-named skill in `core/skills/` for the Claude Code targets. Used for `aigile-orchestration` and `aigile-spec-bridge`, whose subject is platform mechanics (spec sessions, delegation tooling) that a search-and-replace translation would turn into nonsense.
+- **Curated routing descriptions** for `automation-tester`, `devops`, and `security`, whose source definitions carry no `whenToUse` and whose persona falls back to a generic default. A subagent's `description` is what Claude Code matches on when choosing whom to delegate to, so three agents all describing themselves as "executing tasks with precision" actively hurt routing.
+
+### Changed
+- **Platform detection** now recognizes `.claude/` and `CLAUDE.md`, and the `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` environment variables that Claude Code exports — so a plain `install` inside a Claude Code session targets Claude Code without flags.
+- **Copilot/VS Code tool names are translated for Claude Code** the way they already are for Kiro: `runSubagent` → the `Task` tool, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`, `.github/agents` → `.claude/agents`, chatmode → subagent. The `code-tour` agent is exempt from the product-name rewriting, since CodeTour genuinely is a VS Code extension and renaming it produced a false statement ("Claude Code Tour Expert").
+
+### Fixed
+- **`aigile status` printed literal `\n` instead of blank lines.** Ten `console.log` calls in the status and usage output had a doubled escape.
+- **`.aigile-manifest.json` listed agent ids with their extension** (`dev.md`, `analyst.md`) and listed `dev` twice, because the extension-stripping regex was over-escaped (`/\\.md$/`) and never matched, and because `dev.md` and `dev.agent.md` are two source formats for the same agent. Ids are now stripped and de-duplicated.
+
+### Upgrading
+Re-run the installer: `npx @mark-gozner/aigile-method@latest install --for-claude --yes`, then start a new Claude Code session and run `/aigile`. Existing Copilot, Antigravity, and Kiro installs are unaffected — all four platforms can be installed side by side.
+
 ## [1.4.2] - 2026-07-28
 ### Fixed
 - **Orchestrators can always delegate.** Kiro requires the `subagent` tool for a custom agent to spawn subagents, but that tag postdates some Kiro builds, and where it is unrecognized it is silently dropped — leaving an orchestrator with `read` only and no way to delegate. Both orchestrators now declare `tools: ["@builtin", "subagent"]`, so the subagent tool is present on every build, and all specialist agents carry `@builtin` alongside their category tags for the same reason. Delegation-only discipline moves from the tool list to the agent prompt (`@builtin` also grants edit and shell tools, which the orchestrators are explicitly told never to use), and Kiro still prompts before any write or shell call.

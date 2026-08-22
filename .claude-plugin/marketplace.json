@@ -1,0 +1,34 @@
+{
+  "name": "aigile-method",
+  "owner": {
+    "name": "Mark Gozner",
+    "url": "https://github.com/Gmark2000"
+  },
+  "metadata": {
+    "description": "The AIgile Development Method for Claude Code.",
+    "version": "1.5.0"
+  },
+  "plugins": [
+    {
+      "name": "aigile",
+      "source": "./plugin",
+      "description": "AIgile Development Method — specialist agents, per-role workflows, and end-to-end delivery sequences.",
+      "version": "1.5.0",
+      "author": {
+        "name": "Mark Gozner",
+        "url": "https://github.com/Gmark2000"
+      },
+      "homepage": "https://github.com/Gmark2000/AIgile-Method",
+      "license": "SEE LICENSE",
+      "keywords": [
+        "agile",
+        "agents",
+        "scrum",
+        "workflow",
+        "qa",
+        "architecture",
+        "product"
+      ]
+    }
+  ]
+}

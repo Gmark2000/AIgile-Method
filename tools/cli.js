@@ -2691,18 +2691,18 @@ function claudeColorFor(agentId) {
 }
 
 /**
- * Rewrite a source agent definition so it describes Claude Code instead of
- * VS Code / GitHub Copilot. The source agents name tools that do not exist here
- * (`runSubagent`, `vscode_askQuestions`, `manage_todo_list`, `.github/agents`, ...).
- * Left alone, the agents announce missing tools instead of using the equivalent.
- */
-/**
  * Agents whose subject genuinely is another editor. Rewriting "VS Code" to
  * "Claude Code" in these would turn a correct statement into a false one — the
  * CodeTour agent authors `.tour` files for the VS Code extension of that name.
  */
 const CLAUDE_KEEP_EDITOR_NAMES = new Set(['code-tour']);
 
+/**
+ * Rewrite a source agent definition so it describes Claude Code instead of
+ * VS Code / GitHub Copilot. The source agents name tools that do not exist here
+ * (`runSubagent`, `vscode_askQuestions`, `manage_todo_list`, `.github/agents`, ...).
+ * Left alone, the agents announce missing tools instead of using the equivalent.
+ */
 function claudeifyText(text, { keepEditorNames = false } = {}) {
   let out = String(text || '');
   const replacements = [
@@ -2747,6 +2747,14 @@ function claudeifyAgentSource(md, opts) {
   return claudeifyText(String(md || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''), opts);
 }
 
+/**
+ * Skills here replace the same-named skill in core/skills for the Claude Code
+ * targets. Used where a shared skill describes another platform's mechanics
+ * (spec sessions, delegation tooling) closely enough that translating it would
+ * produce nonsense.
+ */
+const CLAUDE_SKILL_OVERRIDES_DIR = path.join('core', 'skills-claude');
+
 /** AIgile-authored skills that should be preloaded into a given subagent. */
 function claudeSkillsFor(agentId) {
   return kiroSkillsFor(agentId);
@@ -2762,24 +2770,17 @@ function claudeCoreSkillName(skill, target) {
 }
 
 /**
- * Adapt an AIgile-authored skill body for Claude Code. The bundled skills were
- * written for Kiro, so they name Kiro paths and spec sessions; everything else in
- * them is platform-neutral.
+ * Adapt an AIgile-authored skill for Claude Code. Only mechanical, unambiguous
+ * substitutions belong here: paths, and the resource root when the skill ships
+ * inside the plugin. A skill whose *subject* is another platform cannot be fixed
+ * by search-and-replace — give it a hand-written override in core/skills-claude/
+ * instead (see CLAUDE_SKILL_OVERRIDES_DIR).
  */
 function claudeifySkill(text, target) {
-  let out = claudeifyText(String(text || ''));
-  const replacements = [
-    [/\bKiro spec sessions?\b/g, 'spec-driven session (requirements -> design -> tasks)'],
-    [/\bKiro specs?\b/g, 'spec documents'],
-    [/`?\.kiro\/specs`?/g, '`docs/specs/`'],
-    [/`?\.kiro\/skills`?/g, '`.claude/skills`'],
-    [/`?\.kiro\/agents`?/g, '`.claude/agents`'],
-    [/`?\.kiro\/steering`?/g, '`CLAUDE.md`'],
-    [/\bKiro chat\b/g, 'Claude Code'],
-    [/\bKiro\b/g, 'Claude Code'],
-    [/`?\bsubagent\b`? tool/g, '`Task` tool'],
-  ];
-  for (const [pattern, value] of replacements) out = out.replace(pattern, value);
+  let out = String(text || '')
+    .replace(/`?\.kiro\/skills`?/g, '`.claude/skills`')
+    .replace(/`?\.kiro\/agents`?/g, '`.claude/agents`')
+    .replace(/`?\.kiro\/steering`?/g, '`CLAUDE.md`');
   if (target.resourceRoot !== '.aigile-core') {
     out = out.replace(/\.aigile-core\//g, `${target.resourceRoot}/`);
   }
@@ -2824,6 +2825,18 @@ function claudeWorkflowCommands(agentId) {
   });
 }
 
+/**
+ * Routing descriptions for agents whose source definition carries no `whenToUse`
+ * and whose persona falls back to the generic default. Without these, Claude Code
+ * would be choosing between several agents that all describe themselves as
+ * "executing tasks with precision".
+ */
+const CLAUDE_AGENT_DESCRIPTIONS = {
+  'automation-tester': 'Use for end-to-end and browser test automation, Playwright suites, visual regression, cross-browser validation, and API test coverage.',
+  devops: 'Use for CI/CD pipelines, infrastructure as code, deployments, release automation, containerization, and observability.',
+  security: 'Use for threat modelling, OWASP review, dependency and secret audits, secure design review, and security sign-off on a change.',
+};
+
 /** The two delegation-only coordinators, which get a restricted toolset. */
 function claudeIsOrchestrator(agentId) {
   return agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator';
@@ -2832,11 +2845,13 @@ function claudeIsOrchestrator(agentId) {
 /**
  * The subagent `description`, which is what Claude Code matches against when it
  * decides who to delegate to — so a generic "X responsibilities and workflows"
- * fallback actively hurts routing. Prefer the source `whenToUse`, then the
- * persona's focus, and only then the generic form.
+ * fallback actively hurts routing. Prefer the source `whenToUse`, then a curated
+ * description, then the persona's focus, and only then the generic form.
  */
 function claudeAgentDescription(agentId, agentMeta, title, person) {
   if (agentMeta.whenToUse) return agentMeta.whenToUse;
+  const curated = CLAUDE_AGENT_DESCRIPTIONS[canonicalAgentId(agentId)];
+  if (curated) return curated;
   if (person && person.focus) return `Use for ${person.focus.charAt(0).toLowerCase()}${person.focus.slice(1)}.`;
   return `Use for ${title} responsibilities and workflows.`;
 }
@@ -3402,11 +3417,16 @@ function collectAigileWorkflows() {
  */
 function writeClaudeCoreSkills(skillsDir, target) {
   const srcSkills = path.join(root, 'core', 'skills');
+  const overrideSkills = path.join(root, CLAUDE_SKILL_OVERRIDES_DIR);
   if (!fs.existsSync(srcSkills)) return 0;
   let count = 0;
   for (const entry of fs.readdirSync(srcSkills, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const srcFile = path.join(srcSkills, entry.name, 'SKILL.md');
+    // A Claude Code override replaces the shared skill wholesale. Use it for any
+    // skill whose subject is platform-specific rather than mangling the shared one.
+    const overrideDir = path.join(overrideSkills, entry.name);
+    const skillDir = fs.existsSync(path.join(overrideDir, 'SKILL.md')) ? overrideDir : path.join(srcSkills, entry.name);
+    const srcFile = path.join(skillDir, 'SKILL.md');
     if (!fs.existsSync(srcFile)) continue;
     const outName = claudeCoreSkillName(entry.name, target);
     const raw = read(srcFile);
@@ -3424,9 +3444,9 @@ function writeClaudeCoreSkills(skillsDir, target) {
     }
     write(path.join(skillsDir, outName, 'SKILL.md'), outContent);
     // Carry over any supporting files the skill ships alongside SKILL.md.
-    for (const extra of fs.readdirSync(path.join(srcSkills, entry.name))) {
+    for (const extra of fs.readdirSync(skillDir)) {
       if (extra === 'SKILL.md') continue;
-      const from = path.join(srcSkills, entry.name, extra);
+      const from = path.join(skillDir, extra);
       const to = path.join(skillsDir, outName, extra);
       if (fs.statSync(from).isDirectory()) copyDir(from, to);
       else write(to, read(from));
@@ -3440,7 +3460,20 @@ function writeClaudeCoreSkills(skillsDir, target) {
  * Write every generated skill (core + per-command workflows + delivery workflows
  * + index) into `skillsDir`. Returns counts per category.
  */
-function writeClaudeSkills({ skillsDir, agents, agentSources, workflows, target }) {
+function writeClaudeSkills({ skillsDir, agents, agentSources, workflows, target, prune = false }) {
+  // Drop AIgile-generated skills from a previous install so a renamed or removed
+  // command does not linger in the `/` menu. Only `aigile`-namespaced directories
+  // are touched — anything the user authored is left alone.
+  let pruned = 0;
+  if (prune && fs.existsSync(skillsDir)) {
+    for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue;
+      if (d.name !== target.indexSkill && !d.name.startsWith('aigile-')) continue;
+      fs.rmSync(path.join(skillsDir, d.name), { recursive: true, force: true });
+      pruned++;
+    }
+  }
+
   const core = writeClaudeCoreSkills(skillsDir, target);
 
   const titles = new Map(agents.map((a) => [a.id, a.title]));
@@ -3478,7 +3511,7 @@ function writeClaudeSkills({ skillsDir, agents, agentSources, workflows, target 
     generateClaudeIndexSkill({ agents, workflows, target })
   );
 
-  return { core, commandSkills, workflowSkills, index: 1, total: core + commandSkills + workflowSkills + 1 };
+  return { core, commandSkills, workflowSkills, index: 1, pruned, total: core + commandSkills + workflowSkills + 1 };
 }
 
 /**
@@ -3697,6 +3730,7 @@ function installClaudeCode(dest) {
     agentSources,
     workflows,
     target,
+    prune: true,
   });
   console.log(`✅ Created ${skills.total} skills in .claude/skills/ (${skills.core} AIgile, ${skills.commandSkills} agent workflows, ${skills.workflowSkills} delivery workflows, 1 index)`);
 
@@ -4252,7 +4286,10 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
     };
     const agentsDir = path.join(dest, '.aigile-core', 'agents');
     if (fs.existsSync(agentsDir)) {
-      manifest.agents = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).map(f => f.replace(/\.agent\.md$/, '').replace(/\.md$/, ''));
+      // `<id>.md` and `<id>.agent.md` are two source formats for the same agent.
+      manifest.agents = Array.from(new Set(
+        fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).map(f => f.replace(/\.agent\.md$/, '').replace(/\.md$/, ''))
+      )).sort();
     }
     // Count new custom agents format
     const customAgentsDir = path.join(dest, '.github', 'agents');
@@ -4302,10 +4339,17 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
       const skillDirs = fs.existsSync(claudeSkillsDir)
         ? fs.readdirSync(claudeSkillsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
         : [];
+      // The AIgile-authored skills keep their source names, so anything else with
+      // the `aigile-` prefix is a generated per-role workflow.
+      const coreSkillDir = path.join(root, 'core', 'skills');
+      const coreSkillNames = fs.existsSync(coreSkillDir)
+        ? fs.readdirSync(coreSkillDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+        : [];
       manifest.claude = {
         agents: fs.existsSync(claudeAgentsDir) ? fs.readdirSync(claudeAgentsDir).filter(f => f.endsWith('.md')).length : 0,
         skills: skillDirs.length,
-        agentWorkflows: skillDirs.filter(nm => /^aigile-.+-.+/.test(nm) && !nm.startsWith('aigile-workflow-')).length,
+        aigileSkills: skillDirs.filter(nm => coreSkillNames.includes(nm)).length,
+        agentWorkflows: skillDirs.filter(nm => nm.startsWith('aigile-') && !nm.startsWith('aigile-workflow-') && !coreSkillNames.includes(nm)).length,
         deliveryWorkflows: skillDirs.filter(nm => nm.startsWith('aigile-workflow-')).length,
         claudeMd: fs.existsSync(path.join(dest, 'CLAUDE.md')),
         settings: fs.existsSync(path.join(dest, '.claude', 'settings.json')),
@@ -4360,7 +4404,7 @@ function showStatus(cwd) {
     if (data.claude) {
       console.log('\nClaude Code:');
       console.log(`  - Subagents: ${data.claude.agents || 0}`);
-      console.log(`  - Skills: ${data.claude.skills || 0} (agent workflows: ${data.claude.agentWorkflows || 0}, delivery workflows: ${data.claude.deliveryWorkflows || 0})`);
+      console.log(`  - Skills: ${data.claude.skills || 0} (AIgile: ${data.claude.aigileSkills || 0}, agent workflows: ${data.claude.agentWorkflows || 0}, delivery workflows: ${data.claude.deliveryWorkflows || 0})`);
       console.log(`  - CLAUDE.md: ${data.claude.claudeMd ? 'yes' : 'no'}`);
       console.log(`  - Project settings: ${data.claude.settings ? 'yes' : 'no'}`);
       console.log(`  - MCP Config: ${data.claude.mcpJson ? 'yes' : 'no'}`);

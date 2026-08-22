@@ -1,0 +1,21 @@
+{
+  "name": "aigile",
+  "version": "1.5.0",
+  "description": "AIgile Development Method — specialist agents, per-role workflows, and end-to-end delivery sequences.",
+  "author": {
+    "name": "Mark Gozner",
+    "url": "https://github.com/Gmark2000"
+  },
+  "homepage": "https://github.com/Gmark2000/AIgile-Method",
+  "repository": "https://github.com/Gmark2000/AIgile-Method",
+  "license": "SEE LICENSE",
+  "keywords": [
+    "agile",
+    "agents",
+    "scrum",
+    "workflow",
+    "qa",
+    "architecture",
+    "product"
+  ]
+}

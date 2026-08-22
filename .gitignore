@@ -24,7 +24,13 @@ npm-debug.log*
 # Source of truth lives in core/ — regenerate with `node tools/cli.js install`.
 .kiro/
 .agent/
+.claude/
 GEMINI.md
+CLAUDE.md
+
+# plugin/ and .claude-plugin/ are ALSO generated (by `aigile bundle`) but are the
+# published Claude Code plugin — they must stay tracked for
+# `/plugin marketplace add Gmark2000/AIgile-Method` to work.
 
 # NOTE: .aigile-core/, .github/agents/, .github/prompts/ and .aigile-manifest.json are
 # also installer output but are still tracked from earlier commits. Ignoring them here
