@@ -1,24 +1,26 @@
-# AIgile Installer (GitHub Copilot Only)
+# Legacy installer modules (unused)
 
-Usage:
+> **Status: superseded.** `tools/cli.js` is the only installer that runs. Nothing in the
+> repository imports `installer.js` or `ide-setup.js`, and they are excluded from the published
+> npm package. They are kept here for reference only — do not extend them.
 
-- Interactive (via your existing CLI):
-  - `npx aigile-method install`
-  - `npm run install:aigile`
-  - Add MCP templates: `npx aigile-method install --with-mcp`
-  - Add mock VS Code MCP settings: `npx aigile-method install --with-mcp-settings`
-  - Interactive prompts will ask about MCP options; use `--yes` to accept defaults quickly
+The live installer supports three platforms:
 
-What it does:
-- Copies `core/` into `.aigile-core/` in your current project
-- Generates GitHub Copilot chat modes from your agents into `.github/chatmodes/*.chatmode.md`
-- Leaves your repo otherwise untouched
- - Prints a friendly ASCII banner during installation
- - Optional: generates `.vscode/mcp.json` with template servers and input prompts
- - Optional: updates `.vscode/settings.json` with mock MCP endpoints (for demos)
- - Shows a small “Created by GM” banner and a short summary on completion
+| Platform | Output |
+|----------|--------|
+| GitHub Copilot | `.github/agents/*.agent.md`, `.github/prompts/` |
+| Google Antigravity | `.agent/rules/`, `.agent/workflows/`, `GEMINI.md` |
+| Kiro | `.kiro/agents/`, `.kiro/steering/`, `.kiro/skills/`, optional `.kiro/settings/mcp.json` |
 
-Notes:
-- This installer is intentionally scoped to GitHub Copilot compatibility.
-- MCP/other IDEs can be added later as separate options.
- - After generating `.vscode/mcp.json`, open VS Code and fill in the prompted API keys.
+All platforms share `.aigile-core/` (a copy of `core/`) for tasks, templates, checklists, and data.
+
+Use the CLI directly:
+
+```bash
+node tools/cli.js install                    # interactive, auto-detects the target IDEs
+node tools/cli.js install --for-kiro --yes   # single platform
+node tools/cli.js skills:list                # Agent Skills registry
+node tools/cli.js --help                     # all commands and flags
+```
+
+See the [root README](../../README.md) for the full documentation.

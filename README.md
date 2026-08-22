@@ -2,7 +2,9 @@
 
 A pragmatic, agent-driven agile method designed for IDE-native AI assistants. It ships with ready-to-run agents, executable tasks, MCP server wiring, and docs/templates to bootstrap product delivery.
 
-Roles covered: Analyst, Architect, Dev, PM, PO, QA, SM, UX-Expert, UI-Expert.
+Supported platforms: **GitHub Copilot**, **Google Antigravity**, and **Kiro** — one installer, the same agent team everywhere.
+
+Roles covered: Analyst, Architect, Dev, React Engineer, DevOps, Security, QA, Automation Tester, PM, PO, SM, UX-Expert, UI-Expert, Code Tour, plus two orchestrators (automatic and human-in-the-loop).
 
 ---
 
@@ -10,12 +12,23 @@ Roles covered: Analyst, Architect, Dev, PM, PO, QA, SM, UX-Expert, UI-Expert.
 
 ### Quick Start (npm)
 
-Prereqs: Node.js 20+
+Prereqs: Node.js 18+ (20+ recommended)
 
 Install AIgile into your project:
 
 ```bash
 npx @mark-gozner/aigile-method install
+```
+
+The installer detects which IDEs your project already uses (`.kiro/`, `.github/`, `.agent/`, or being run from a Kiro terminal) and pre-selects those targets. In a Kiro workspace you get the Kiro agent team, steering, and skills without passing any flags. Projects with none of those markers default to GitHub Copilot, as before.
+
+The interactive installer asks which platforms to target: GitHub Copilot, Google Antigravity, Kiro (any combination). You can also skip the prompt with flags:
+
+```bash
+npx @mark-gozner/aigile-method install --for-copilot --yes       # GitHub Copilot only
+npx @mark-gozner/aigile-method install --for-antigravity --yes   # Antigravity only
+npx @mark-gozner/aigile-method install --for-kiro --yes          # Kiro only
+npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --for-kiro --yes
 ```
 
 Add MCP config (optional):
@@ -30,8 +43,10 @@ npx @mark-gozner/aigile-method bundle
 
 What this gives you in the project:
 - `.aigile-core/` – roles, tasks, templates, checklists, data, workflows
-- `.github/agents/` – GitHub Copilot custom agents
-- `.vscode/mcp.json` – only if you pass `--with-mcp`
+- `.github/agents/` – GitHub Copilot custom agents (`--for-copilot`)
+- `.agent/rules/`, `.agent/workflows/`, `GEMINI.md` – Google Antigravity (`--for-antigravity`)
+- `.kiro/agents/`, `.kiro/steering/`, `.kiro/skills/` – Kiro custom agents, steering, and Agent Skills (`--for-kiro`)
+- `.vscode/mcp.json` or `.kiro/settings/mcp.json` – only if you pass `--with-mcp`
 - `.aigile-manifest.json` – manifest summary
 
 To update later (e.g., after a version bump):
@@ -64,27 +79,74 @@ Optional convenience:
 
 ### Custom Agents
 
-The installer generates GitHub Copilot custom agents under `.github/agents/`. Each agent includes:
+Every supported platform gets the full AIgile agent team out of the box, generated from the same source definitions in `core/agents/`.
 
+**GitHub Copilot** (`.github/agents/*.agent.md`)
 - Strong system directives for persona maintenance
 - YAML frontmatter with tools, handoffs, and model configuration
 - Subagent delegation support via `runSubagent`
-- A lightweight appendix with the original agent source for transparency
 
-If an agent stops behaving according to its role, simply re-run the installer to regenerate the agents.
+**Google Antigravity** (`.agent/rules/`, `.agent/workflows/`, `GEMINI.md`)
+- One rule file per agent plus one workflow file per agent command
+- `GEMINI.md` as the project-level agent index
 
-After install, your project will have:
-- `.aigile-core/`: agents, tasks, templates, checklists, data, workflows
-- `.github/agents/`: generated custom agents for GitHub Copilot
-- `.vscode/mcp.json`: optional MCP servers configuration (if using `--with-mcp`)
+**Kiro** (`.kiro/agents/`, `.kiro/steering/`, `.kiro/skills/`)
+- One [custom agent](https://kiro.dev/docs/custom-agents/) per role, so the whole team shows up in Kiro's agent selector and is available for subagent delegation
+- Tool access declared with Kiro tool categories (`read`, `write`, `shell`, `web`, `context`, `subagent`, `spec`) plus `@builtin` and `includeMcpJson: true`, so subagent delegation works across Kiro builds
+- Orchestrators are delegation-only by prompt, not by tool restriction — they need `@builtin` for the subagent tool to be reliably present
+- `.kiro/steering/aigile-method.md` — always-included framework context
+- `.kiro/steering/aigile-<agent>-workflows.md` — manual [steering files](https://kiro.dev/docs/steering/) that show up as slash commands (e.g. `/aigile-dev-workflows`)
+- `.kiro/skills/` — AIgile [Agent Skills](https://kiro.dev/docs/skills/) (see below)
+- `.kiro/settings/mcp.json` when combined with `--with-mcp`
+
+Each generated agent keeps a collapsible appendix with the original agent source for transparency. If an agent stops behaving according to its role, re-run the installer to regenerate it.
+
+---
+
+### Agent Skills (Kiro)
+
+`--for-kiro` also installs four AIgile skills into `.kiro/skills/`, following the open [Agent Skills](https://agentskills.io/) standard. They load on demand when a request matches their description, and each generated agent lists the skills relevant to its role.
+
+| Skill | What it covers |
+|-------|----------------|
+| `aigile-orchestration` | Routing matrix for the whole team, delegation protocol, sequencing rules, when to escalate |
+| `aigile-story-delivery` | Story readiness, task breakdown, implementation loop, definition of done, QA handoff |
+| `aigile-quality-gate` | Evidence gathering, risk scoring, and PASS / CONCERNS / FAIL / WAIVED decisions |
+| `aigile-spec-bridge` | Mapping Kiro spec phases (requirements, design, tasks) onto AIgile artifacts and roles |
+
+#### Community skills
+
+AIgile also ships a curated registry of third-party skills. Nothing third-party is bundled in the npm package — `skills:add` downloads each skill from its source repository at your request and writes an `ATTRIBUTION.md` recording source, author, license, and retrieval date.
+
+```bash
+npx @mark-gozner/aigile-method skills:list                  # browse the registry
+npx @mark-gozner/aigile-method skills:add                   # recommended set
+npx @mark-gozner/aigile-method skills:add caveman grill-me  # specific skills
+npx @mark-gozner/aigile-method skills:add --all --global    # everything, into ~/.kiro/skills
+npx @mark-gozner/aigile-method install --for-kiro --with-community-skills --yes
+```
+
+The registry currently covers [caveman](https://github.com/JuliusBrussee/caveman) (token-thrifty replies), [grill-me, junior-to-senior, loop-factory, context-canary, interface-kit](https://github.com/JuliusBrussee/skills) (all MIT, by Julius Brussee), and [webapp-testing, mcp-builder, skill-creator, frontend-design](https://github.com/anthropics/skills) from Anthropic's public skills repo. Set `GITHUB_TOKEN` if you hit GitHub API rate limits. These are third-party instructions that will steer your agent — review them before use.
 
 ---
 
 ## Using AIgile in your IDE
 
-1) Select an agent for a role (e.g., PO, PM, Architect) from `.github/agents/`
+**GitHub Copilot**
+1) Pick an agent for a role (e.g., PO, PM, Architect) from the Agents dropdown in Copilot Chat
 2) Ask for help with a specific command (e.g., "\*help" or "\*create-epic")
-3) When you execute a task, the agent will load the exact file from `.aigile-core/tasks/...` and follow it step by step
+
+**Kiro**
+1) Open the workspace and trust it when prompted (required for `.kiro/agents/` to load)
+2) Choose a role from the agent selector, or ask Kiro to run one as a subagent ("Use the `po` subagent to draft stories")
+2b) Run `aigile-orchestrator` / `aigile-manual-orchestrator` as the **main** agent when you want it to coordinate the team. They declare the `subagent` tool, but a subagent cannot spawn further subagents, so an orchestrator launched as a subagent can only hand briefs back
+3) Type `/` in chat to pull in a workflow or skill (e.g. `/aigile-qa-workflows`, `/aigile-quality-gate`)
+4) Manage everything from the Agent Steering & Skills panel in the Kiro side bar
+
+**Antigravity**
+1) Open the project — rules and workflows are picked up from `.agent/`
+
+In all cases, when you execute a task the agent loads the exact file from `.aigile-core/tasks/...` and follows it step by step.
 
 Key principles:
 - Tasks are executable instructions; follow them exactly.
@@ -100,10 +162,14 @@ After installation you can use:
 | Command | Purpose |
 |---------|---------|
 | `npx @mark-gozner/aigile-method install --yes` | Re-install / regenerate agents |
-| `npx @mark-gozner/aigile-method install --with-mcp --yes` | Include `.vscode/mcp.json` |
+| `npx @mark-gozner/aigile-method install --for-kiro --yes` | Install the agent team for Kiro |
+| `npx @mark-gozner/aigile-method install --for-antigravity --yes` | Install the agent team for Antigravity |
+| `npx @mark-gozner/aigile-method install --with-mcp --yes` | Include MCP config (`.vscode/mcp.json`, or `.kiro/settings/mcp.json` for Kiro) |
 | `npx @mark-gozner/aigile-method bundle` | Build text bundles |
-| `npx @mark-gozner/aigile-method status` | Show installed version, agents, agent count, MCP info |
+| `npx @mark-gozner/aigile-method status` | Show installed version, agents, agent count, skills, MCP info |
 | `npx @mark-gozner/aigile-method list:agents` | List installed agent IDs |
+| `npx @mark-gozner/aigile-method skills:list` | List AIgile skills and the curated community registry |
+| `npx @mark-gozner/aigile-method skills:add [ids]` | Fetch community skills into `.kiro/skills/` |
 
 Consumer `package.json` helper scripts are auto-added (unless `AIGILE_ADD_SCRIPTS=0`) for convenience:
 ```json

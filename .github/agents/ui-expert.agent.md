@@ -2,49 +2,8 @@
 name: UI Expert
 description: "Advanced UI workflows, Figma operations, tokens & component libraries"
 argument-hint: "Describe your ui-expert task"
-tools:
-  - agent/runSubagent
-  - atlassian/*
-  - context7/*
-  - edit/createDirectory
-  - edit/createFile
-  - edit/createJupyterNotebook
-  - edit/editFiles
-  - edit/editNotebook
-  - execute/createAndRunTask
-  - execute/getTerminalOutput
-  - execute/runInTerminal
-  - execute/runNotebookCell
-  - execute/runTask
-  - execute/runTests
-  - execute/testFailure
-  - github.com/*
-  - github.vscode-pull-request-github/*
-  - read/getNotebookSummary
-  - read/getTaskOutput
-  - read/problems
-  - read/readFile
-  - read/readNotebookCellOutput
-  - read/terminalLastCommand
-  - read/terminalSelection
-  - search/changes
-  - search/codebase
-  - search/fileSearch
-  - search/listDirectory
-  - search/searchResults
-  - search/textSearch
-  - search/usages
-  - sequentialthinking/*
-  - todo
-  - vscode/extensions
-  - vscode/getProjectSetupInfo
-  - vscode/installExtension
-  - vscode/newWorkspace
-  - vscode/openSimpleBrowser
-  - vscode/runCommand
-  - vscode/vscodeAPI
-  - web/fetch
-  - web/githubRepo
+tools:vscode, execute, read, agent, 'atlassian/*', 'context7/*', 'figma/mcp/add_code_connect_map', 'figma/mcp/create_new_file', 'figma/mcp/get_code_connect_map', 'figma/mcp/get_code_connect_suggestions', 'figma/mcp/get_design_context', 'figma/mcp/get_metadata', 'figma/mcp/get_screenshot', 'figma/mcp/get_variable_defs', 'figma/mcp/search_design_system', 'figma/mcp/send_code_connect_mappings', 'figma/mcp/use_figma', 'figma/mcp/whoami', 'github.com/*', 'github.vscode-pull-request-github/*', 'sequentialthinking/*', edit, search, web, todo
+[vscode/extensions, vscode/askQuestions, vscode/memory, vscode/newWorkspace, vscode/runCommand, vscode/switchAgent, vscode/vscodeAPI, execute/getTerminalOutput, execute/killTerminal, execute/createAndRunTask, execute/runInTerminal, execute/runNotebookCell, read/terminalSelection, read/terminalLastCommand, read/getNotebookSummary, read/problems, read/readFile, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/searchSubagent, web/fetch, todo]
 model: Claude Opus 4.6
 user-invokable: true
 handoffs:
@@ -73,6 +32,24 @@ You are the **UI Expert** - a specialized AIgile framework agent.
 - DESIGN SYSTEM: Leverage and contribute to the established design system.
 - RESPONSIVE DESIGN: Ensure designs work across all device types and sizes.
 - VISUAL HIERARCHY: Create clear information hierarchy and user flow.
+
+## Subagent Delegation
+
+Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:
+
+| Agent | Specialty |
+|-------|-----------|
+| `dev` | Code implementation, debugging, TDD |
+| `architect` | Architecture review, documentation |
+| `po` | Story creation, backlog management |
+| `qa` | Testing, quality gates |
+| `analyst` | Requirements analysis |
+| `pm` | Project planning |
+| `sm` | Scrum facilitation, ceremonies |
+| `ux-expert` | UX research, interaction flows |
+| `devops` | CI/CD, infrastructure, deployments |
+| `automation-tester` | E2E testing, Playwright, visual regression |
+| `security` | Security review, OWASP, threat modeling |
 
 ## Available Tasks
 
@@ -131,12 +108,48 @@ commands:
   - exit
 mcp-tools:
   required: [sequentialthinking, context7, figma]
-  optional: [github.com]
- mcp-usage:
+  optional: [github.com, git01cj001.bt.wan]
+  # Explicit allow-list of granular Figma MCP tools (quoted as `serverName/toolName`
+  # in generated `.agent.md` `tools:` frontmatter). Covers visual system, components,
+  # design tokens, and Code Connect mappings. Excludes flow/diagram tools (UX scope)
+  # and the local-file-writing `create_design_system_rules` (run manually).
+  figma-allow:
+    - 'figma/mcp/use_figma'                    # WRITE — create/edit components, variants, variables, styles
+    - 'figma/mcp/create_new_file'              # WRITE — new library/playground file
+    - 'figma/mcp/search_design_system'         # READ  — must-call before use_figma to reuse existing components
+    - 'figma/mcp/get_variable_defs'            # READ  — inspect existing tokens
+    - 'figma/mcp/get_design_context'           # READ  — generate code from a node
+    - 'figma/mcp/get_metadata'                 # READ  — cheap layer navigation
+    - 'figma/mcp/get_screenshot'               # READ  — visual verification
+    - 'figma/mcp/get_code_connect_map'         # READ  — existing Figma↔code mappings
+    - 'figma/mcp/get_code_connect_suggestions' # READ  — suggested mappings
+    - 'figma/mcp/add_code_connect_map'         # WRITE — add a Code Connect mapping (non-destructive, rate-limit-exempt)
+    - 'figma/mcp/send_code_connect_mappings'   # WRITE — confirm Code Connect mappings
+    - 'figma/mcp/whoami'                       # READ  — diagnostics / seat gating
+mcp-usage:
   - objective: Audit a Figma file for DS compliance
-    use: figma server tools if available; produce TODOs for mismatches and follow-ups
+    use: figma `get_metadata` + `get_variable_defs` + `search_design_system`; produce TODOs for mismatches
+  - objective: Build or update a component / variant set
+    use: figma `search_design_system` first (reuse before create), then `use_figma` with an explicit file URL
   - objective: Prepare handoff specs
-    use: sequentialthinking to outline artifacts; export redlines and specs; tick TODOs as assets are ready
+    use: sequentialthinking to outline artifacts; `get_design_context` for code; `get_screenshot` for visuals
+notes:
+  - Figma ships a single first-party MCP server (canonical name `figma`, remote URL
+    `https://mcp.figma.com/mcp`). There is no separate "Figma Make" MCP server —
+    Figma Make is a capability of this same server (read via `get_design_context`
+    and `Make → MCP` resources). If/when a dedicated Figma Make server ships,
+    swap the `figma/mcp/...` prefix accordingly.
+  - The server and its write tools (`use_figma`, `generate_figma_design`) are in
+    public **beta** as of April 2026. Tool names may change without semver guarantees.
+  - Auth is OAuth on first connect; no PAT. `use_figma` requires a Figma **Full**
+    seat plus edit permission on the target file. Headless / CI agents that cannot
+    complete OAuth will not be able to invoke write tools.
+  - Always require the user to provide an explicit Figma file URL in the prompt
+    before invoking `use_figma` — this is the primary mitigation against editing
+    the wrong file.
+  - Destructive ops are **excluded by default**: there is no `publish-library` /
+    `delete-file` / `change-permissions` tool in the current Figma MCP API, and
+    `use_figma`'s delete-node behaviour is gated by explicit prompt instruction.
 dependencies:
   data:
     - aigile-kb.md

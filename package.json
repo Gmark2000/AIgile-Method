@@ -1,7 +1,7 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.3.0",
-  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (GitHub Copilot & Google Antigravity), handoffs, and delegation",
+  "version": "1.4.2",
+  "description": "AIgile Development Method by Mark Gozner - AI-powered development with custom agents (GitHub Copilot, Google Antigravity & Kiro), handoffs, and delegation",
   "private": false,
   "license": "SEE LICENSE",
   "bin": {
@@ -30,6 +30,11 @@
     "aigile:list": "aigile-method list:agents"
   },
   "keywords": [
+    "kiro",
+    "kiro-ide",
+    "agent-skills",
+    "skills",
+    "steering",
     "antigravity",
     "gemini",
     "agentic",
@@ -69,6 +74,8 @@
     "dist/",
     "LICENSE*",
     "README.md",
-    "package.json"
+    "CHANGELOG.md",
+    "package.json",
+    "!tools/installer/**"
   ]
 }

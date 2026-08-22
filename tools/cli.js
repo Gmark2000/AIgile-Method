@@ -87,7 +87,7 @@ function bundle() {
   if (fs.existsSync(teamPath)) {
     teamOut.push(wrap(teamPath, read(teamPath)));
   }
-  const buckets = ['agents', 'tasks', 'templates', 'checklists', 'data', 'workflows'];
+  const buckets = ['agents', 'tasks', 'templates', 'checklists', 'data', 'workflows', 'skills'];
   for (const b of buckets) {
     const dir = path.join(root, 'core', b);
     for (const p of listFilesRecursive(dir)) {
@@ -121,6 +121,9 @@ function bundle() {
     write(path.join(root, 'dist', 'dev-agent-bundle.txt'), devOut.join('\n'));
     console.log('✅ Wrote dist/dev-agent-bundle.txt');
   }
+
+  // 4) Distributable Claude Code plugin + marketplace entry
+  buildClaudePlugin();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +309,51 @@ async function multiSelectPrompt({ title, options, defaults = [] }) {
   });
 }
 
+/**
+ * Detect which platforms a project is already set up for, so a plain
+ * `install` / `install --yes` targets the IDE the user actually works in.
+ * Falls back to Copilot when nothing is detected (historical default).
+ */
+function detectPlatforms(dest) {
+  const found = [];
+  if (fs.existsSync(path.join(dest, '.kiro'))) found.push('kiro');
+  if (fs.existsSync(path.join(dest, '.github'))) found.push('copilot');
+  if (fs.existsSync(path.join(dest, '.agent')) || fs.existsSync(path.join(dest, 'GEMINI.md'))) found.push('antigravity');
+  if (fs.existsSync(path.join(dest, '.claude')) || fs.existsSync(path.join(dest, 'CLAUDE.md'))) found.push('claude');
+  // Kiro sets its own terminal identity; treat that as a strong signal
+  const termProgram = (process.env.TERM_PROGRAM || '').toLowerCase();
+  if ((termProgram.includes('kiro') || process.env.KIRO_HOME) && !found.includes('kiro')) found.push('kiro');
+  // Claude Code exports these when the installer runs from inside a session
+  if ((process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) && !found.includes('claude')) found.push('claude');
+  return found.length ? found : ['copilot'];
+}
+
+/**
+ * Resolve target platforms for the non-interactive code paths.
+ * Explicit flags always win; otherwise fall back to workspace detection.
+ */
+function resolvePlatforms(dest, { copilot = false, antigravity = false, kiro = false, claude = false } = {}) {
+  if (copilot || antigravity || kiro || claude) return { copilot, antigravity, kiro, claude, detected: false };
+  const detected = detectPlatforms(dest);
+  return {
+    copilot: detected.includes('copilot'),
+    antigravity: detected.includes('antigravity'),
+    kiro: detected.includes('kiro'),
+    claude: detected.includes('claude'),
+    detected: true,
+  };
+}
+
+/** Human-readable list of the platforms a resolved target covers. */
+function describePlatforms(target) {
+  return [
+    target.copilot && 'copilot',
+    target.antigravity && 'antigravity',
+    target.kiro && 'kiro',
+    target.claude && 'claude',
+  ].filter(Boolean).join(', ');
+}
+
 async function installInteractive({ autoYes = false }) {
   const dest = process.cwd();
   printInstallBanner({ showGMSignature: true });
@@ -313,44 +361,69 @@ async function installInteractive({ autoYes = false }) {
   // ── CLI flag overrides ──
   const forcedCopilot = process.argv.includes('--for-copilot');
   const forcedAntigravity = process.argv.includes('--for-antigravity');
+  const forcedKiro = process.argv.includes('--for-kiro');
+  const forcedClaude = process.argv.includes('--for-claude');
   const forcedJavaInstructions = process.argv.includes('--with-java-instructions');
 
   // ── Platform selector ──
   let platforms = [];
-  if (forcedCopilot || forcedAntigravity) {
+  if (forcedCopilot || forcedAntigravity || forcedKiro || forcedClaude) {
     // Explicit flags take precedence
     if (forcedCopilot) platforms.push('copilot');
     if (forcedAntigravity) platforms.push('antigravity');
+    if (forcedKiro) platforms.push('kiro');
+    if (forcedClaude) platforms.push('claude');
   } else if (autoYes) {
-    platforms = ['copilot']; // default for --yes
+    platforms = detectPlatforms(dest); // match the IDEs this project already uses
+    console.log(`Detected target platform(s): ${platforms.join(', ')}`);
   } else {
+    const detected = detectPlatforms(dest);
     const platformSelections = await multiSelectPrompt({
       title: 'Select target platforms:',
       options: [
         { label: 'GitHub Copilot (.github/agents/)', value: 'copilot' },
         { label: 'Google Antigravity (.agent/ + GEMINI.md)', value: 'antigravity' },
+        { label: 'Kiro (.kiro/agents/ + .kiro/steering/ + .kiro/skills/)', value: 'kiro' },
+        { label: 'Claude Code (.claude/agents/ + .claude/skills/ + CLAUDE.md)', value: 'claude' },
       ],
-      defaults: ['copilot'],
+      defaults: detected,
     });
-    platforms = platformSelections.length > 0 ? platformSelections : ['copilot'];
+    platforms = platformSelections.length > 0 ? platformSelections : detected;
   }
 
   const installCopilot = platforms.includes('copilot');
   const installAntigravityFlag = platforms.includes('antigravity');
+  const installKiroFlag = platforms.includes('kiro');
+  const installClaudeFlag = platforms.includes('claude');
 
   // ── Optional components (only shown in interactive mode) ──
   let addMcpJson = false;
   let addMcpSettings = false;
   let addJavaInstructions = forcedJavaInstructions;
+  let addCommunitySkillsFlag = process.argv.includes('--with-community-skills');
   if (autoYes) {
     addMcpJson = false;
     addMcpSettings = false;
   } else {
+    const mcpTargets = [
+      (installCopilot || installAntigravityFlag) && '.vscode/mcp.json',
+      installKiroFlag && '.kiro/settings/mcp.json',
+      installClaudeFlag && '.mcp.json',
+    ].filter(Boolean).join(' + ');
     const componentOptions = [
-      { label: 'Install MCP servers (.vscode/mcp.json from mcp/servers.json)', value: 'mcpJson' },
-      { label: 'Add mock .vscode/settings.json MCP endpoints', value: 'mcpSettings' },
-      { label: 'Include Java contributor instructions (.github/instructions/java.instructions.md)', value: 'javaInstructions' },
+      { label: `Install MCP servers (${mcpTargets} from mcp/servers.json)`, value: 'mcpJson' },
     ];
+    if (installCopilot) {
+      // VS Code specific extras
+      componentOptions.push({ label: 'Add mock .vscode/settings.json MCP endpoints', value: 'mcpSettings' });
+      componentOptions.push({ label: 'Include Java contributor instructions (.github/instructions/java.instructions.md)', value: 'javaInstructions' });
+    }
+    if (installKiroFlag) {
+      componentOptions.push({
+        label: 'Fetch recommended community skills for Kiro (downloads from GitHub)',
+        value: 'communitySkills',
+      });
+    }
     const selections = await multiSelectPrompt({
       title: 'Select optional components:',
       options: componentOptions,
@@ -359,24 +432,41 @@ async function installInteractive({ autoYes = false }) {
     addMcpJson = selections.includes('mcpJson');
     addMcpSettings = selections.includes('mcpSettings');
     if (!forcedJavaInstructions) addJavaInstructions = selections.includes('javaInstructions');
+    addCommunitySkillsFlag = selections.includes('communitySkills');
   }
 
   // ── Run platform-specific installers ──
   let antigravityResult = null;
+  let kiroResult = null;
+  let claudeResult = null;
   if (installCopilot) {
     installGithubCopilot(dest, { addJavaInstructions });
   }
   if (installAntigravityFlag) {
     antigravityResult = installAntigravity(dest);
   }
+  if (installKiroFlag) {
+    kiroResult = installKiro(dest);
+  }
+  if (installClaudeFlag) {
+    claudeResult = installClaudeCode(dest);
+  }
+  let communitySkillsResult = null;
+  if (installKiroFlag && addCommunitySkillsFlag) {
+    communitySkillsResult = await addCommunitySkills([], { dest });
+  }
 
   // ── Post-install shared steps ──
   maybeAddConsumerScripts(dest);
   if (process.argv.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
+  if (addMcpJson) {
+    if (installCopilot || installAntigravityFlag) writeMcpJson(dest);
+    if (installKiroFlag) writeKiroMcpJson(dest);
+    if (installClaudeFlag) writeClaudeMcpJson(dest);
+  }
   if (installCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: installAntigravityFlag });
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: installAntigravityFlag, forKiro: installKiroFlag, forClaude: installClaudeFlag });
 
   // ── Print summary ──
   try {
@@ -401,6 +491,22 @@ async function installInteractive({ autoYes = false }) {
       console.log(`  - ${yellow('GEMINI.md')} generated`);
     }
 
+    if (installKiroFlag && kiroResult) {
+      console.log(`  - Kiro custom agents: ${cyan(String(kiroResult.agents))}`);
+      console.log(`  - Kiro steering files: ${cyan(String(kiroResult.steering))}`);
+      console.log(`  - Kiro AIgile skills: ${cyan(String(kiroResult.skills))}`);
+    }
+
+    if (installClaudeFlag && claudeResult) {
+      console.log(`  - Claude Code subagents: ${cyan(String(claudeResult.agents))}`);
+      console.log(`  - Claude Code skills: ${cyan(String(claudeResult.skills.total))} (${claudeResult.skills.commandSkills} agent workflows, ${claudeResult.skills.workflowSkills} delivery workflows)`);
+      console.log(`  - ${yellow('CLAUDE.md')} AIgile section written`);
+    }
+
+    if (communitySkillsResult) {
+      console.log(`  - Community skills fetched: ${cyan(String(communitySkillsResult.added.length))}${communitySkillsResult.failed.length ? ` (${communitySkillsResult.failed.length} failed)` : ''}`);
+    }
+
     if (addMcpJson) console.log(`  - ${yellow('.vscode/mcp.json')} generated (fill API keys)`);
     if (addMcpSettings) console.log(`  - ${yellow('.vscode/settings.json')} updated with mock MCP servers`);
     if (addJavaInstructions) console.log(`  - ${yellow('.github/instructions/java.instructions.md')} copied`);
@@ -412,6 +518,16 @@ async function installInteractive({ autoYes = false }) {
     }
     if (installAntigravityFlag) {
       console.log(`  ${step++}) Open Antigravity IDE — agent rules and workflows are ready in ${yellow('.agent/')}`);
+    }
+    if (installKiroFlag) {
+      console.log(`  ${step++}) Open Kiro, trust the workspace, then pick an agent from the ${yellow('agent selector')}`);
+      console.log(`  ${step++}) Type ${yellow('/')} in chat for AIgile workflows and skills (e.g. /aigile-dev-workflows)`);
+      console.log(`  ${step++}) Browse more skills with ${yellow('npx @mark-gozner/aigile-method skills:list')}`);
+    }
+    if (installClaudeFlag) {
+      console.log(`  ${step++}) Open Claude Code here and run ${yellow('/aigile')} for routing help`);
+      console.log(`  ${step++}) Type ${yellow('/aigile-')} to browse workflows (e.g. /aigile-dev-develop-story)`);
+      console.log(`  ${step++}) Delegate to a specialist by asking, e.g. ${yellow('"use the qa subagent to design tests"')}`);
     }
     if (addMcpJson) console.log(`  ${step++}) When prompted, provide the required API keys for MCP servers`);
   } catch { }
@@ -979,7 +1095,13 @@ function agentIcon(agentId) {
     analyst: '🧠',
     architect: '🏗️',
     'ux-expert': '🎨',
-    'ui-expert': '🖌️'
+    'ui-expert': '🖌️',
+    'aigile-manual-orchestrator': '🎬',
+    devops: '⚙️',
+    security: '🔐',
+    'automation-tester': '🤖',
+    'code-tour': '🧭',
+    'expert-react-frontend-engineer': '⚛️'
   };
   return map[agentId] || '🤖';
 }
@@ -2011,6 +2133,1984 @@ function installAntigravity(dest) {
   return { rules: generatedRules.length, workflows: wfCount };
 }
 
+// ---------------------------------------------------------------------------
+// Kiro (kiro.dev) support
+// Kiro reads custom agents from `.kiro/agents/*.md` (markdown + YAML frontmatter)
+// and persistent project context from `.kiro/steering/*.md`.
+// Docs: https://kiro.dev/docs/custom-agents/ , https://kiro.dev/docs/steering/
+// ---------------------------------------------------------------------------
+
+/** Collapse arbitrary text into a safe single-line double-quoted YAML scalar. */
+function yamlSingleLine(str) {
+  return String(str || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/"/g, "'")
+    .trim();
+}
+
+/**
+ * Kiro tool categories for an agent.
+ * Categories auto-expand as Kiro ships new tools: read | write | shell | web |
+ * subagent | context | spec. MCP tools come in via `includeMcpJson`.
+ */
+function kiroToolsFor(agentId) {
+  if (agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator') {
+    // Orchestrators MUST be able to delegate. Kiro requires the `subagent` tool for that,
+    // but that tag is newer than some builds — where it is unknown it is silently dropped,
+    // leaving the orchestrator with no way to spawn subagents. `@builtin` grants every
+    // built-in tool (including subagent delegation) on every build, so delegation always
+    // works. Delegation-only discipline is enforced by the agent prompt instead of by the
+    // tool list, and Kiro still asks before any write or shell call.
+    return ['@builtin', 'subagent'];
+  }
+  return ['read', 'write', 'shell', 'web', 'context', 'subagent', 'spec', '@builtin'];
+}
+
+/**
+ * Rewrite a source agent definition so it describes Kiro instead of VS Code / Copilot.
+ * The source agents were authored for GitHub Copilot and name tools that do not exist in
+ * Kiro (`vscode_askQuestions`, `runSubagent`, Copilot Chat TODOs, `.github/agents`, ...).
+ * Leaving those names in the embedded appendix makes Kiro agents announce missing tools,
+ * so they are translated to their Kiro equivalents.
+ */
+function kiroifyText(text) {
+  let out = String(text || '');
+  const replacements = [
+    // Confirmation gate: Kiro has no askQuestions tool; the agent asks in chat instead.
+    [/\bfresh `?vscode[_/]askQuestions`? answer/g, 'fresh confirmation answer'],
+    [/`?vscode[_/]askQuestions`?/g, 'the confirmation question in chat'],
+    [/`?\bmanage_todo_list\b`?/g, 'a task checklist'],
+    [/`?\baskQuestions\b`?/g, 'the confirmation question in chat'],
+    // Delegation: Kiro launches subagents instead of Copilot's runSubagent tool.
+    [/#tool:runSubagent/g, 'subagent delegation'],
+    [/#runSubagent/g, 'subagent delegation'],
+    [/`?\brunSubagent\b`?/g, 'subagent delegation'],
+    // Copilot chat / TODO features.
+    [/GitHub Copilot Chat built-in TODOs/g, 'a task checklist in Kiro chat'],
+    [/GitHub Copilot Chat TODOs/g, 'a task checklist in Kiro chat'],
+    [/Copilot Chat TODOs/g, 'a task checklist in Kiro chat'],
+    [/Copilot Chat/g, 'Kiro chat'],
+    [/GitHub Copilot/g, 'Kiro'],
+    [/\bCopilot\b/g, 'Kiro'],
+    // Paths and file formats.
+    [/\.github\/chatmodes/g, '.kiro/agents'],
+    [/\.github\/agents/g, '.kiro/agents'],
+    [/\bchatmodes\b/g, 'custom agents'],
+    [/\bchatmode\b/g, 'custom agent'],
+    // Remaining editor references.
+    [/\bVS ?Code\b/gi, 'Kiro'],
+    [/#tool:([A-Za-z0-9_.-]+)/g, 'the `$1` tool'],
+    [/`?\bvscode_([A-Za-z0-9_]+)`?/g, 'the `$1` capability'],
+  ];
+  for (const [pattern, value] of replacements) out = out.replace(pattern, value);
+  return out.trim();
+}
+
+function kiroifyAgentSource(md) {
+  // Drop the Copilot custom-agent frontmatter (tools/handoffs/agents lists). The Kiro
+  // frontmatter generated by this installer is the authoritative one.
+  return kiroifyText(String(md || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''));
+}
+
+/**
+ * Read `name` and `description` from a native `.agent.md` YAML frontmatter block.
+ * Those agents have no fenced YAML block, so `extractAgentMeta` finds nothing for them.
+ */
+function extractFrontmatterMeta(md) {
+  const meta = {};
+  const m = String(md || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return meta;
+  const fm = m[1];
+  const name = fm.match(/^name\s*:\s*(.+)$/m);
+  const description = fm.match(/^description\s*:\s*(.+)$/m);
+  const unquote = (s) => s.trim().replace(/^["']|["']$/g, '').trim();
+  if (name) meta.title = unquote(name[1]);
+  if (description) meta.description = unquote(description[1]);
+  return meta;
+}
+
+/**
+ * AIgile skills (installed into .kiro/skills/) that are most relevant to an agent.
+ */
+function kiroSkillsFor(agentId) {
+  const map = {
+    'aigile-orchestrator': ['aigile-orchestration', 'aigile-spec-bridge'],
+    'aigile-manual-orchestrator': ['aigile-orchestration', 'aigile-spec-bridge'],
+    'aigile-master': ['aigile-orchestration', 'aigile-story-delivery', 'aigile-quality-gate', 'aigile-spec-bridge'],
+    dev: ['aigile-story-delivery', 'aigile-spec-bridge'],
+    'expert-react-frontend-engineer': ['aigile-story-delivery'],
+    qa: ['aigile-quality-gate', 'aigile-story-delivery'],
+    'automation-tester': ['aigile-quality-gate'],
+    security: ['aigile-quality-gate'],
+    po: ['aigile-story-delivery', 'aigile-spec-bridge'],
+    pm: ['aigile-orchestration', 'aigile-spec-bridge'],
+    sm: ['aigile-orchestration'],
+    analyst: ['aigile-spec-bridge'],
+    architect: ['aigile-spec-bridge'],
+    devops: ['aigile-quality-gate'],
+  };
+  return map[agentId] || [];
+}
+
+/**
+ * Generate a Kiro custom agent file (.kiro/agents/<id>.md).
+ */
+function generateKiroAgent({ agentId, agentMeta, agentMd, tasks }) {
+  const title = kiroifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId));
+  const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
+  const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
+  const combinedPrinciples = (agentMeta.corePrinciples && agentMeta.corePrinciples.length)
+    ? agentMeta.corePrinciples
+    : principlesFor(agentId);
+  const deps = relevantDependencies(agentId);
+  const commands = commandsFor(agentId);
+  const canonicalId = canonicalAgentId(agentId);
+
+  const fm = [];
+  fm.push('---');
+  fm.push(`name: ${agentId}`);
+  fm.push(`description: "${yamlSingleLine(kiroifyText(description))}"`);
+  fm.push(`tools: [${kiroToolsFor(agentId).map(t => `"${t}"`).join(', ')}]`);
+  fm.push('includeMcpJson: true');
+  fm.push('---');
+  fm.push('');
+
+  const body = [];
+  body.push(`# ${agentIcon(agentId)} ${title}`);
+  body.push('');
+  body.push(`You are the **${title}** — a specialized agent of the AIgile Development Method.`);
+  body.push('');
+  body.push('## Core Identity');
+  body.push('');
+  body.push(`- **Role**: ${person.role}`);
+  body.push(`- **Style**: ${person.style}`);
+  body.push(`- **Identity**: ${person.identity}`);
+  body.push(`- **Focus**: ${person.focus}`);
+  body.push('');
+  body.push('Stay in this persona for the whole session. If the user asks for work that belongs to');
+  body.push('another role, say so and suggest the matching AIgile agent.');
+  body.push('');
+  body.push('## Environment: Kiro');
+  body.push('');
+  body.push('You run inside **Kiro**. Use Kiro capabilities only. There is no VS Code, no GitHub Copilot,');
+  body.push('and no Copilot tooling here — never tell the user a Copilot tool is unavailable, just use the');
+  body.push('Kiro equivalent below and carry on.');
+  body.push('');
+  body.push('| Need | Use in Kiro |');
+  body.push('|------|-------------|');
+  body.push('| Ask the user to confirm or choose ("the confirmation question in chat") | Put the question and its numbered options directly in your reply, then stop and wait for the answer |');
+  body.push('| Delegate to another role ("subagent delegation") | Run the matching agent from `.kiro/agents/` as a Kiro subagent |');
+  body.push('| Persistent project context | Steering files in `.kiro/steering/` |');
+  body.push('| Reusable procedures | Agent Skills in `.kiro/skills/` |');
+  body.push('| Multi-step feature work | A Kiro spec session (`requirements` → `design` → `tasks`) |');
+  body.push('| Event automation | Kiro hooks |');
+  body.push('| External systems (Jira, GitHub, Figma, ...) | MCP servers from `.kiro/settings/mcp.json` |');
+  body.push('| Track progress on a long task | A task checklist in your reply, or spec tasks |');
+  body.push('');
+  body.push('The appendix at the end of this file is the original cross-platform definition. Treat its');
+  body.push('intent as authoritative and its tool names, `tools:` lists, and handoff blocks as historical —');
+  body.push('they describe other IDEs. This section wins on any conflict.');
+  body.push('');
+  body.push('## Operating Principles');
+  body.push('');
+  for (const p of combinedPrinciples) body.push(`- ${p}`);
+  body.push('');
+
+  if (commands.length) {
+    body.push('## Commands');
+    body.push('');
+    body.push('Users address you with `*command` (e.g. `*help`). Supported commands:');
+    body.push('');
+    for (const cmd of commands) {
+      const key = Object.keys(cmd)[0];
+      const val = cmd[key];
+      if (Array.isArray(val)) {
+        body.push(`- \`*${key}\``);
+        for (const el of val) body.push(`  - ${el}`);
+      } else {
+        body.push(`- \`*${key}\` — ${val}`);
+      }
+    }
+    body.push('');
+  }
+
+  // Kiro delegates work to subagents; custom agents in .kiro/agents are usable as subagents.
+  const delegationTargets = [
+    { id: 'dev', specialty: 'Code implementation, debugging, TDD' },
+    { id: 'architect', specialty: 'Architecture review, documentation' },
+    { id: 'po', specialty: 'Story creation, backlog management' },
+    { id: 'qa', specialty: 'Testing, quality gates' },
+    { id: 'analyst', specialty: 'Requirements analysis' },
+    { id: 'pm', specialty: 'Project planning' },
+    { id: 'sm', specialty: 'Scrum facilitation, ceremonies' },
+    { id: 'ui-expert', specialty: 'UI design, design systems' },
+    { id: 'ux-expert', specialty: 'UX research, interaction flows' },
+    { id: 'devops', specialty: 'CI/CD, infrastructure, deployments' },
+    { id: 'automation-tester', specialty: 'E2E testing, Playwright, visual regression' },
+    { id: 'security', specialty: 'Security review, OWASP, threat modeling' },
+  ];
+  const isOrchestrator = agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator';
+  body.push('## Subagent Delegation');
+  body.push('');
+  if (isOrchestrator) {
+    body.push('Delegation is your primary capability. Your `tools` list includes `@builtin`, so the');
+    body.push('subagent tool is always available to you — use it. Never claim you cannot delegate.');
+    body.push('');
+    body.push('You also technically hold editing and shell tools through `@builtin`. **Do not use them.**');
+    body.push('You are delegation-only by design: read to understand, then delegate the work.');
+    body.push('');
+    if (agentId === 'aigile-manual-orchestrator') {
+      body.push('- **Gate first.** Never spawn a subagent until the user has answered your confirmation');
+      body.push('  question in chat for that specific delegation. Holding the `subagent` tool does not');
+      body.push('  license you to use it unprompted — ask, wait, then dispatch what was approved.');
+    }
+    body.push('- Spawn an AIgile agent by name (for example the `qa` agent) and give it a self-contained brief:');
+    body.push('  goal, target artifact, file paths, constraints, and definition of done. The subagent has its');
+    body.push('  own context window and cannot see this conversation.');
+    body.push('- Up to four subagents run at once. Parallelize independent briefs; sequence dependent ones.');
+    body.push('- Each subagent returns a summary to you. Verify the artifact against the stated done');
+    body.push('  criteria before continuing, and synthesize the results yourself.');
+    body.push('- **If you cannot spawn subagents** (you were launched as a subagent yourself, so nested');
+    body.push('  delegation is unavailable), do not start doing the work. Say so plainly and return the');
+    body.push('  numbered briefs you would have dispatched, so the main agent or the user can run them.');
+    body.push('  Tell the user that running you from the agent selector as the main agent restores delegation.');
+    body.push('');
+    body.push('Available specialists:');
+    body.push('');
+  } else {
+    body.push('Delegate specialized work by asking Kiro to run the matching subagent');
+    body.push('(e.g. "Use the `qa` subagent to design tests for this story"):');
+    body.push('');
+  }
+  body.push('| Subagent | Specialty |');
+  body.push('|----------|-----------|');
+  for (const t of delegationTargets) {
+    if (t.id !== canonicalId) body.push(`| \`${t.id}\` | ${t.specialty} |`);
+  }
+  body.push('');
+
+  const relevantSkills = kiroSkillsFor(agentId);
+  if (relevantSkills.length) {
+    body.push('## Skills');
+    body.push('');
+    body.push('These Agent Skills in `.kiro/skills/` apply to your work. They activate automatically when the');
+    body.push('request matches, and you can invoke them from chat with `/`:');
+    body.push('');
+    for (const s of relevantSkills) body.push(`- \`${s}\``);
+    body.push('');
+  }
+
+  if (tasks.length) {
+    body.push('## Available Tasks');
+    body.push('');
+    body.push('Task files live in `.aigile-core/tasks/`. Load and follow them exactly when running a command:');
+    body.push('');
+    for (const t of tasks) body.push(`- \`${t}\``);
+    body.push('');
+  }
+
+  if (deps.templates.length) {
+    body.push('## Templates');
+    body.push('');
+    body.push('Reference templates in `.aigile-core/templates/`:');
+    body.push('');
+    for (const t of deps.templates) body.push(`- ${t}`);
+    body.push('');
+  }
+
+  if (deps.checklists.length) {
+    body.push('## Checklists');
+    body.push('');
+    body.push('Reference checklists in `.aigile-core/checklists/`:');
+    body.push('');
+    for (const c of deps.checklists) body.push(`- ${c}`);
+    body.push('');
+  }
+
+  if (deps.data.length) {
+    body.push('## Data References');
+    body.push('');
+    body.push('Reference data files in `.aigile-core/data/`:');
+    body.push('');
+    for (const d of deps.data) body.push(`- ${d}`);
+    body.push('');
+  }
+
+  body.push('## Original Agent Definition');
+  body.push('');
+  body.push('<details>');
+  body.push('<summary>Expand for full agent configuration (adapted for Kiro)</summary>');
+  body.push('');
+  body.push(kiroifyAgentSource(agentMd));
+  body.push('');
+  body.push('</details>');
+
+  return fm.join('\n') + body.join('\n');
+}
+
+/**
+ * Generate a manual-inclusion steering file holding one agent's workflows.
+ * Manual steering files show up as slash commands in Kiro chat
+ * (e.g. `/aigile-dev-workflows`).
+ */
+function generateKiroWorkflowSteering(agentId) {
+  const commands = commandsFor(agentId).filter(c => {
+    const k = Object.keys(c)[0];
+    return k !== 'help' && k !== 'exit';
+  });
+  if (!commands.length) return null;
+
+  const title = toTitleCase(agentId);
+  const lines = [];
+  lines.push('---');
+  lines.push('inclusion: manual');
+  lines.push('---');
+  lines.push('');
+  lines.push(`# ${agentIcon(agentId)} ${title} Workflows (AIgile)`);
+  lines.push('');
+  lines.push(`On-demand workflows for the AIgile **${title}** agent. Pick one and follow it step by step.`);
+  lines.push(`For the full persona, switch to the \`${agentId}\` agent in the agent selector.`);
+  lines.push('');
+
+  for (const cmd of commands) {
+    const key = Object.keys(cmd)[0];
+    const val = cmd[key];
+    lines.push(`## ${toTitleCase(key)} (\`*${key}\`)`);
+    lines.push('');
+    if (Array.isArray(val)) {
+      let step = 1;
+      for (const el of val) lines.push(`${step++}. ${el}`);
+    } else if (typeof val === 'string') {
+      lines.push(`**Goal:** ${val}`);
+    } else {
+      lines.push(`**Goal:** Execute the ${key} command.`);
+    }
+    lines.push('');
+  }
+
+  lines.push('## Resources');
+  lines.push('');
+  lines.push('- Agent definitions: `.kiro/agents/`');
+  lines.push('- Source agents: `.aigile-core/agents/`');
+  lines.push('- Task files: `.aigile-core/tasks/`');
+  lines.push('- Templates: `.aigile-core/templates/`');
+  lines.push('- Checklists: `.aigile-core/checklists/`');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate the always-included steering file describing the AIgile framework.
+ * This is the Kiro counterpart to GEMINI.md / copilot instructions.
+ */
+function generateKiroSteering(agents) {
+  const lines = [];
+  lines.push('---');
+  lines.push('inclusion: always');
+  lines.push('---');
+  lines.push('');
+  lines.push('# AIgile Development Method');
+  lines.push('');
+  lines.push('This workspace uses the **AIgile Development Method** — a pragmatic, agent-driven agile framework.');
+  lines.push('');
+  lines.push('## Agent Team');
+  lines.push('');
+  lines.push('Specialist agents are installed as Kiro custom agents in `.kiro/agents/`. Pick one from the');
+  lines.push('agent selector, or ask Kiro to run it as a subagent (e.g. "Use the `po` subagent to draft stories").');
+  lines.push('');
+  lines.push('Run `aigile-orchestrator` or `aigile-manual-orchestrator` as the **main** agent (select it in the');
+  lines.push('agent selector) when you want it to coordinate the team. They delegate with the `subagent` tool,');
+  lines.push('and a subagent cannot spawn further subagents — so an orchestrator launched as a subagent can only');
+  lines.push('hand back briefs instead of dispatching them.');
+  lines.push('');
+  lines.push('| Agent | Role | When to use |');
+  lines.push('|-------|------|-------------|');
+  for (const a of agents) {
+    lines.push(`| ${agentIcon(a.id)} \`${a.id}\` | ${a.title} | ${a.description} |`);
+  }
+  lines.push('');
+  lines.push('## Workflows');
+  lines.push('');
+  lines.push('Per-agent workflows are manual steering files in `.kiro/steering/`. Type `/` in chat and pick');
+  lines.push('`aigile-<agent>-workflows` (e.g. `/aigile-dev-workflows`) to pull a workflow into the conversation.');
+  lines.push('');
+  lines.push('## Skills');
+  lines.push('');
+  lines.push('AIgile ships Agent Skills in `.kiro/skills/`. They activate automatically when a request matches');
+  lines.push('their description, or on demand via `/`:');
+  lines.push('');
+  lines.push('- `aigile-orchestration` — route work to the right agent and coordinate multi-agent delivery');
+  lines.push('- `aigile-story-delivery` — story readiness, task breakdown, implementation loop, definition of done');
+  lines.push('- `aigile-quality-gate` — evidence-backed PASS / CONCERNS / FAIL / WAIVED decisions');
+  lines.push('- `aigile-spec-bridge` — map Kiro spec phases onto AIgile artifacts and roles');
+  lines.push('');
+  lines.push('More curated community skills can be added with `npx @mark-gozner/aigile-method skills:add`.');
+  lines.push('');
+  lines.push('## Core Assets');
+  lines.push('');
+  lines.push('The `.aigile-core/` directory holds all framework resources:');
+  lines.push('');
+  lines.push('- **`agents/`** — Source agent definitions');
+  lines.push('- **`tasks/`** — Executable task instructions (follow them exactly)');
+  lines.push('- **`templates/`** — Output templates (YAML-based)');
+  lines.push('- **`checklists/`** — Quality and process checklists');
+  lines.push('- **`data/`** — Reference data (brainstorming techniques, test frameworks, etc.)');
+  lines.push('- **`core-config.yaml`** — Project paths and preferences');
+  lines.push('');
+  lines.push('## Key Principles');
+  lines.push('');
+  lines.push('- Tasks are executable instructions; follow them exactly.');
+  lines.push('- Elicitation steps are mandatory; always ask for missing inputs.');
+  lines.push('- Save artifacts under `docs/` for traceability.');
+  lines.push('- Prefer small, safe, testable changes.');
+  lines.push('- Use Spec sessions for multi-step features; keep Vibe sessions for focused edits.');
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Convert the repo MCP catalog (VS Code format) into Kiro's `.kiro/settings/mcp.json`
+ * format: `{ "mcpServers": { "<id>": { command, args, env, disabled, autoApprove } } }`.
+ * VS Code `${input:foo}` placeholders become `${FOO}` environment references.
+ */
+function writeKiroMcpJson(dest) {
+  const target = path.join(dest, '.kiro', 'settings', 'mcp.json');
+  const doc = readJsonIfExists(path.join(root, 'mcp', 'servers.json'));
+  if (!doc || !doc.servers) {
+    console.warn('⚠️ mcp/servers.json not found — skipped .kiro/settings/mcp.json');
+    return false;
+  }
+  const toEnvRef = (v) => typeof v === 'string'
+    ? v.replace(/\$\{input:([A-Za-z0-9_.-]+)\}/g, (_m, id) => `\${${id.replace(/[.-]/g, '_').toUpperCase()}}`)
+    : v;
+
+  const existing = readJsonIfExists(target) || {};
+  const mcpServers = { ...(existing.mcpServers || {}) };
+  for (const [id, cfg] of Object.entries(doc.servers)) {
+    const next = {};
+    if (cfg.command) next.command = cfg.command;
+    if (Array.isArray(cfg.args)) next.args = cfg.args.map(toEnvRef);
+    if (cfg.url) next.url = toEnvRef(cfg.url);
+    if (cfg.env) {
+      next.env = {};
+      for (const [k, v] of Object.entries(cfg.env)) next.env[k] = toEnvRef(v);
+    }
+    next.disabled = false;
+    next.autoApprove = [];
+    mcpServers[id] = { ...(mcpServers[id] || {}), ...next };
+  }
+  write(target, JSON.stringify({ ...existing, mcpServers }, null, 2));
+  console.log('✅ Installed MCP servers into .kiro/settings/mcp.json (set the referenced env vars)');
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code (code.claude.com) support
+// Claude Code reads subagents from `.claude/agents/*.md`, skills (which is also
+// how custom slash commands are authored now) from `.claude/skills/<name>/SKILL.md`,
+// always-on project context from `CLAUDE.md`, project MCP servers from `.mcp.json`
+// and project settings from `.claude/settings.json`.
+// Docs: https://code.claude.com/docs/en/sub-agents , https://code.claude.com/docs/en/skills
+// ---------------------------------------------------------------------------
+
+/**
+ * Naming and path conventions differ between the two ways AIgile reaches Claude Code:
+ *
+ *  - `project` — files written into a workspace by `aigile install --for-claude`.
+ *    Skills live at `.claude/skills/aigile-<name>/` so they are self-namespacing
+ *    in the `/` menu, and framework resources are read from `.aigile-core/`.
+ *  - `plugin`  — files baked into the distributable Claude Code plugin by
+ *    `aigile bundle`. Claude Code already namespaces plugin skills as
+ *    `/<plugin>:<skill>`, so the `aigile-` prefix would double up; resources are
+ *    read from the plugin's own copy of `core/` via `${CLAUDE_PLUGIN_ROOT}`.
+ */
+function claudeTarget(kind = 'project') {
+  if (kind === 'plugin') {
+    return {
+      kind,
+      ns: '',
+      resourceRoot: '${CLAUDE_PLUGIN_ROOT}/core',
+      ref: (n) => `/aigile:${n}`,
+      indexSkill: 'method',
+      indexRef: '/aigile:method',
+    };
+  }
+  return {
+    kind: 'project',
+    ns: 'aigile-',
+    resourceRoot: '.aigile-core',
+    ref: (n) => `/aigile-${n}`,
+    indexSkill: 'aigile',
+    indexRef: '/aigile',
+  };
+}
+
+/**
+ * Tools for a Claude Code subagent.
+ *
+ * Returning `null` means "omit the `tools:` key", which makes the subagent
+ * inherit every tool the session has — including MCP tools, whose names depend
+ * on which servers the user actually configured. That is deliberately the
+ * default: an explicit allow-list here would silently strip capabilities
+ * whenever a user wires up a server AIgile does not know about.
+ *
+ * The orchestrators are the exception. They are pure coordinators, so they get
+ * a read-and-delegate allow-list with no Write/Edit/Bash.
+ */
+function claudeToolsFor(agentId) {
+  if (claudeIsOrchestrator(agentId)) {
+    return ['Read', 'Glob', 'Grep', 'Task', 'TodoWrite', 'AskUserQuestion', 'WebFetch', 'WebSearch'];
+  }
+  return null;
+}
+
+/** Subagent list colour, so the AIgile team is visually distinguishable in `/agents`. */
+function claudeColorFor(agentId) {
+  const map = {
+    'aigile-orchestrator': 'purple',
+    'aigile-manual-orchestrator': 'purple',
+    'aigile-master': 'purple',
+    analyst: 'cyan',
+    pm: 'blue',
+    po: 'blue',
+    sm: 'blue',
+    architect: 'orange',
+    dev: 'green',
+    'expert-react-frontend-engineer': 'green',
+    qa: 'yellow',
+    'automation-tester': 'yellow',
+    security: 'red',
+    devops: 'orange',
+    'ux-expert': 'pink',
+    'ui-expert': 'pink',
+    'code-tour': 'cyan',
+  };
+  return map[agentId] || 'cyan';
+}
+
+/**
+ * Rewrite a source agent definition so it describes Claude Code instead of
+ * VS Code / GitHub Copilot. The source agents name tools that do not exist here
+ * (`runSubagent`, `vscode_askQuestions`, `manage_todo_list`, `.github/agents`, ...).
+ * Left alone, the agents announce missing tools instead of using the equivalent.
+ */
+/**
+ * Agents whose subject genuinely is another editor. Rewriting "VS Code" to
+ * "Claude Code" in these would turn a correct statement into a false one — the
+ * CodeTour agent authors `.tour` files for the VS Code extension of that name.
+ */
+const CLAUDE_KEEP_EDITOR_NAMES = new Set(['code-tour']);
+
+function claudeifyText(text, { keepEditorNames = false } = {}) {
+  let out = String(text || '');
+  const replacements = [
+    // Confirmation gate: Claude Code has a first-class equivalent.
+    [/\bfresh `?vscode[_/]askQuestions`? answer/g, 'fresh AskUserQuestion answer'],
+    [/`?vscode[_/]askQuestions`?/g, 'the `AskUserQuestion` tool'],
+    [/`?\baskQuestions\b`?/g, 'the `AskUserQuestion` tool'],
+    // Task tracking.
+    [/`?\bmanage_todo_list\b`?/g, 'the `TodoWrite` tool'],
+    [/GitHub Copilot Chat built-in TODOs/g, 'the `TodoWrite` tool'],
+    [/GitHub Copilot Chat TODOs/g, 'the `TodoWrite` tool'],
+    [/Copilot Chat TODOs/g, 'the `TodoWrite` tool'],
+    // Delegation: Claude Code spawns subagents with the Task tool.
+    [/#tool:runSubagent/g, 'the `Task` tool'],
+    [/#runSubagent/g, 'the `Task` tool'],
+    [/`?\brunSubagent\b`?/g, 'the `Task` tool'],
+    // Paths and file formats.
+    [/\.github\/chatmodes/g, '.claude/agents'],
+    [/\.github\/agents/g, '.claude/agents'],
+    [/\bchatmodes\b/g, 'subagents'],
+    [/\bchatmode\b/g, 'subagent'],
+    [/#tool:([A-Za-z0-9_.-]+)/g, 'the `$1` tool'],
+    [/`?\bvscode_([A-Za-z0-9_]+)`?/g, 'the `$1` capability'],
+  ];
+  // Product names are rewritten only where the agent is not *about* another editor.
+  const editorNames = [
+    [/Copilot Chat/g, 'Claude Code'],
+    [/GitHub Copilot/g, 'Claude Code'],
+    [/\bCopilot\b/g, 'Claude Code'],
+    [/\bVS ?Code\b/gi, 'Claude Code'],
+  ];
+  for (const [pattern, value] of replacements) out = out.replace(pattern, value);
+  if (!keepEditorNames) {
+    for (const [pattern, value] of editorNames) out = out.replace(pattern, value);
+  }
+  return out.trim();
+}
+
+function claudeifyAgentSource(md, opts) {
+  // Drop the Copilot custom-agent frontmatter (tools/handoffs/model lists). The
+  // Claude Code frontmatter generated by this installer is the authoritative one.
+  return claudeifyText(String(md || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''), opts);
+}
+
+/** AIgile-authored skills that should be preloaded into a given subagent. */
+function claudeSkillsFor(agentId) {
+  return kiroSkillsFor(agentId);
+}
+
+/**
+ * Skill name for one of the AIgile-authored core skills under the given target.
+ * Plugin skills are already namespaced as `/aigile:<skill>` by Claude Code, so the
+ * `aigile-` prefix is dropped there to avoid `/aigile:aigile-orchestration`.
+ */
+function claudeCoreSkillName(skill, target) {
+  return target.ns ? skill : skill.replace(/^aigile-/, '');
+}
+
+/**
+ * Adapt an AIgile-authored skill body for Claude Code. The bundled skills were
+ * written for Kiro, so they name Kiro paths and spec sessions; everything else in
+ * them is platform-neutral.
+ */
+function claudeifySkill(text, target) {
+  let out = claudeifyText(String(text || ''));
+  const replacements = [
+    [/\bKiro spec sessions?\b/g, 'spec-driven session (requirements -> design -> tasks)'],
+    [/\bKiro specs?\b/g, 'spec documents'],
+    [/`?\.kiro\/specs`?/g, '`docs/specs/`'],
+    [/`?\.kiro\/skills`?/g, '`.claude/skills`'],
+    [/`?\.kiro\/agents`?/g, '`.claude/agents`'],
+    [/`?\.kiro\/steering`?/g, '`CLAUDE.md`'],
+    [/\bKiro chat\b/g, 'Claude Code'],
+    [/\bKiro\b/g, 'Claude Code'],
+    [/`?\bsubagent\b`? tool/g, '`Task` tool'],
+  ];
+  for (const [pattern, value] of replacements) out = out.replace(pattern, value);
+  if (target.resourceRoot !== '.aigile-core') {
+    out = out.replace(/\.aigile-core\//g, `${target.resourceRoot}/`);
+  }
+  return out;
+}
+
+/** Turn any string into a safe skill/directory slug. */
+function claudeSlug(str) {
+  return String(str || '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+/** The delegation roster shown to every Claude Code subagent. */
+const CLAUDE_DELEGATION_TARGETS = [
+  { id: 'analyst', specialty: 'Requirements elicitation, brainstorming, market research' },
+  { id: 'pm', specialty: 'Product scope, PRDs, roadmap, sprint planning' },
+  { id: 'po', specialty: 'Epics, stories, acceptance criteria, backlog grooming' },
+  { id: 'architect', specialty: 'System design, ADRs, architecture review' },
+  { id: 'dev', specialty: 'Implementation, debugging, refactoring, TDD' },
+  { id: 'expert-react-frontend-engineer', specialty: 'React/frontend component architecture' },
+  { id: 'qa', specialty: 'Test strategy, test design, quality gates' },
+  { id: 'automation-tester', specialty: 'E2E and browser automation, visual regression' },
+  { id: 'security', specialty: 'Threat modelling, OWASP review, dependency audit' },
+  { id: 'devops', specialty: 'CI/CD, infrastructure, deployments, observability' },
+  { id: 'ux-expert', specialty: 'User journeys, interaction flows, frontend specs' },
+  { id: 'ui-expert', specialty: 'Visual design, design systems, tokens, Figma' },
+  { id: 'sm', specialty: 'Ceremonies, impediments, process health' },
+  { id: 'code-tour', specialty: 'Codebase walkthroughs and onboarding tours' },
+];
+
+/**
+ * Commands that become their own invocable workflow skill. `help` and `exit` are
+ * chat conventions rather than procedures, and `explain` is identical for every
+ * agent — none of them earn a slot in the `/` menu.
+ */
+function claudeWorkflowCommands(agentId) {
+  return commandsFor(agentId).filter((c) => {
+    const key = Object.keys(c)[0];
+    return key !== 'help' && key !== 'exit' && key !== 'explain';
+  });
+}
+
+/** The two delegation-only coordinators, which get a restricted toolset. */
+function claudeIsOrchestrator(agentId) {
+  return agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator';
+}
+
+/**
+ * The subagent `description`, which is what Claude Code matches against when it
+ * decides who to delegate to — so a generic "X responsibilities and workflows"
+ * fallback actively hurts routing. Prefer the source `whenToUse`, then the
+ * persona's focus, and only then the generic form.
+ */
+function claudeAgentDescription(agentId, agentMeta, title, person) {
+  if (agentMeta.whenToUse) return agentMeta.whenToUse;
+  if (person && person.focus) return `Use for ${person.focus.charAt(0).toLowerCase()}${person.focus.slice(1)}.`;
+  return `Use for ${title} responsibilities and workflows.`;
+}
+
+/**
+ * Generate a Claude Code subagent file (.claude/agents/<id>.md).
+ */
+function generateClaudeAgent({ agentId, agentMeta, agentMd, tasks, target }) {
+  const t = target;
+  const opts = { keepEditorNames: CLAUDE_KEEP_EDITOR_NAMES.has(agentId) };
+  const title = claudeifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId), opts);
+  const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
+  const description = claudeAgentDescription(agentId, agentMeta, title, person);
+  const combinedPrinciples = (agentMeta.corePrinciples && agentMeta.corePrinciples.length)
+    ? agentMeta.corePrinciples
+    : principlesFor(agentId);
+  const deps = relevantDependencies(agentId);
+  const workflowCommands = claudeWorkflowCommands(agentId);
+  const canonicalId = canonicalAgentId(agentId);
+  const tools = claudeToolsFor(agentId);
+  const skills = claudeSkillsFor(agentId);
+  const isOrchestrator = claudeIsOrchestrator(agentId);
+
+  const fm = [];
+  fm.push('---');
+  fm.push(`name: ${agentId}`);
+  fm.push(`description: "${yamlSingleLine(claudeifyText(description, opts))}"`);
+  if (tools) fm.push(`tools: ${tools.join(', ')}`);
+  if (skills.length) fm.push(`skills: [${skills.map((s) => claudeCoreSkillName(s, t)).join(', ')}]`);
+  fm.push(`color: ${claudeColorFor(agentId)}`);
+  fm.push('---');
+  fm.push('');
+  fm.push('');
+
+  const body = [];
+  body.push(`# ${agentIcon(agentId)} ${title}`);
+  body.push('');
+  body.push(`You are the **${title}** — a specialized agent of the AIgile Development Method.`);
+  body.push('');
+  body.push('## Core Identity');
+  body.push('');
+  body.push(`- **Role**: ${person.role}`);
+  body.push(`- **Style**: ${person.style}`);
+  body.push(`- **Identity**: ${person.identity}`);
+  body.push(`- **Focus**: ${person.focus}`);
+  body.push('');
+  body.push('Stay in this persona for the whole session. If the user asks for work that belongs to');
+  body.push('another role, say so and name the matching AIgile agent instead of doing it yourself.');
+  body.push('');
+  body.push('## Environment: Claude Code');
+  body.push('');
+  body.push('You run inside **Claude Code**. Use Claude Code capabilities only. There is no VS Code and');
+  body.push('no GitHub Copilot here — never tell the user a Copilot tool is unavailable, just use the');
+  body.push('equivalent below and carry on.');
+  body.push('');
+  body.push('| Need | Use in Claude Code |');
+  body.push('|------|--------------------|');
+  body.push('| Ask the user to confirm or choose | The `AskUserQuestion` tool |');
+  body.push('| Delegate to another role | The `Task` tool with the matching `subagent_type` |');
+  body.push('| Track progress on a long task | The `TodoWrite` tool |');
+  body.push('| Persistent project context | `CLAUDE.md` at the project root |');
+  body.push('| Reusable procedures | Agent Skills, invoked from chat with `/` |');
+  if (isOrchestrator) {
+    body.push('| Read and search the codebase | `Read`, `Glob`, `Grep` |');
+    body.push('| Edit code, run commands, call MCP servers | You hold none of those tools — delegate instead |');
+  } else {
+    body.push('| Read, search and edit code | `Read`, `Glob`, `Grep`, `Edit`, `Write` |');
+    body.push('| Run commands and tests | `Bash` |');
+    body.push('| External systems (Jira, GitHub, Figma, ...) | MCP tools named `mcp__<server>__<tool>` |');
+  }
+  body.push('');
+  body.push('The appendix at the end of this file is the original cross-platform definition. Treat its');
+  body.push('intent as authoritative and its tool names, `tools:` lists and handoff blocks as historical —');
+  body.push('they describe other IDEs. This section wins on any conflict.');
+  body.push('');
+  body.push('## Operating Principles');
+  body.push('');
+  for (const p of combinedPrinciples) body.push(`- ${claudeifyText(p, opts)}`);
+  body.push('');
+
+  if (workflowCommands.length) {
+    body.push('## Workflows');
+    body.push('');
+    body.push('Each of your commands is installed as an invocable skill. Run one yourself when the user');
+    body.push('asks for it by name, or tell the user to type it:');
+    body.push('');
+    body.push('| Command | Skill | Purpose |');
+    body.push('|---------|-------|---------|');
+    for (const cmd of workflowCommands) {
+      const key = Object.keys(cmd)[0];
+      const val = cmd[key];
+      const purpose = Array.isArray(val) ? `Run the ${key.replace(/-/g, ' ')} procedure` : String(val);
+      body.push(`| \`*${key}\` | \`${t.ref(`${canonicalId}-${key}`)}\` | ${yamlSingleLine(purpose).replace(/\.*$/, '')} |`);
+    }
+    body.push('');
+    body.push('`*help` lists these back to the user; `*explain` walks through what you just did and why.');
+    body.push('');
+  }
+
+  body.push('## Delegation');
+  body.push('');
+  if (isOrchestrator) {
+    body.push('Delegation is your primary capability. You hold `Task` and no editing or shell tools —');
+    body.push('that is by design. Read to understand, then delegate the work.');
+    body.push('');
+    if (agentId === 'aigile-manual-orchestrator') {
+      body.push('- **Gate first.** Never call `Task` until the user has answered your `AskUserQuestion`');
+      body.push('  confirmation for that specific delegation. Holding the tool does not license you to');
+      body.push('  use it unprompted — ask, wait, then dispatch exactly what was approved.');
+    }
+    body.push('- Spawn an AIgile specialist with `Task` and its `subagent_type` (for example');
+    body.push('  `subagent_type: "qa"`), and give it a self-contained brief: goal, target artifact,');
+    body.push('  file paths, constraints and definition of done. The subagent has its own context');
+    body.push('  window and cannot see this conversation.');
+    body.push('- Send independent briefs in a single message so they run concurrently; sequence');
+    body.push('  dependent ones.');
+    body.push('- Verify each returned artifact against the stated done criteria before continuing.');
+    body.push('  Do not accept a summary in place of the artifact.');
+    body.push('- **If you cannot spawn subagents** — you were launched as a subagent yourself, and');
+    body.push('  Claude Code does not nest delegation — do not start doing the work. Say so plainly and');
+    body.push('  return the numbered briefs you would have dispatched. Tell the user that running you');
+    body.push('  from the main session restores delegation.');
+    body.push('');
+    body.push('Available specialists:');
+    body.push('');
+  } else {
+    body.push('Delegate specialized work with the `Task` tool, passing the specialist as `subagent_type`');
+    body.push('(for example `subagent_type: "qa"` to design tests for a story):');
+    body.push('');
+  }
+  body.push('| `subagent_type` | Specialty |');
+  body.push('|-----------------|-----------|');
+  for (const d of CLAUDE_DELEGATION_TARGETS) {
+    if (d.id !== canonicalId) body.push(`| \`${d.id}\` | ${d.specialty} |`);
+  }
+  body.push('');
+
+  if (skills.length) {
+    body.push('## Skills');
+    body.push('');
+    body.push('These AIgile skills are preloaded for you and also apply automatically when a request');
+    body.push('matches their description:');
+    body.push('');
+    for (const s of skills) body.push(`- \`${t.ref(claudeCoreSkillName(s, t).replace(/^aigile-/, ''))}\``);
+    body.push('');
+  }
+
+  if (tasks.length) {
+    body.push('## Available Tasks');
+    body.push('');
+    body.push(`Task files live in \`${t.resourceRoot}/tasks/\`. Read and follow them exactly when running a command:`);
+    body.push('');
+    for (const task of tasks) body.push(`- \`${task}\``);
+    body.push('');
+  }
+
+  if (deps.templates.length) {
+    body.push('## Templates');
+    body.push('');
+    body.push(`Reference templates in \`${t.resourceRoot}/templates/\`:`);
+    body.push('');
+    for (const x of deps.templates) body.push(`- ${x}`);
+    body.push('');
+  }
+
+  if (deps.checklists.length) {
+    body.push('## Checklists');
+    body.push('');
+    body.push(`Reference checklists in \`${t.resourceRoot}/checklists/\`:`);
+    body.push('');
+    for (const x of deps.checklists) body.push(`- ${x}`);
+    body.push('');
+  }
+
+  if (deps.data.length) {
+    body.push('## Data References');
+    body.push('');
+    body.push(`Reference data files in \`${t.resourceRoot}/data/\`:`);
+    body.push('');
+    for (const x of deps.data) body.push(`- ${x}`);
+    body.push('');
+  }
+
+  body.push('## Original Agent Definition');
+  body.push('');
+  body.push('<details>');
+  body.push('<summary>Expand for the full cross-platform agent configuration (adapted for Claude Code)</summary>');
+  body.push('');
+  body.push(claudeifyAgentSource(agentMd, opts));
+  body.push('');
+  body.push('</details>');
+
+  return fm.join('\n') + body.join('\n') + '\n';
+}
+
+/**
+ * Generate one workflow skill per agent command
+ * (.claude/skills/aigile-<agent>-<command>/SKILL.md).
+ */
+function generateClaudeCommandSkill({ agentId, command, target, agentTitle }) {
+  const t = target;
+  const key = Object.keys(command)[0];
+  const val = command[key];
+  const canonicalId = canonicalAgentId(agentId);
+  const title = agentTitle || toTitleCase(agentId);
+  const purpose = Array.isArray(val)
+    ? `run the ${key.replace(/-/g, ' ')} procedure`
+    : String(val);
+  // `commandsFor` values are fragments, not sentences — normalise before use.
+  const purposeSentence = yamlSingleLine(claudeifyText(purpose)).replace(/\.*$/, '');
+
+  const lines = [];
+  lines.push('---');
+  lines.push(`name: ${t.ns}${canonicalId}-${key}`);
+  lines.push(`description: "AIgile ${title} workflow — ${purposeSentence}. Run it as the ${canonicalId} agent."`);
+  lines.push('argument-hint: "[context — story id, ticket key, file path, ...]"');
+  lines.push('disable-model-invocation: true');
+  lines.push('---');
+  lines.push('');
+  lines.push(`# ${agentIcon(agentId)} ${toTitleCase(key)}`);
+  lines.push('');
+  lines.push(`AIgile workflow owned by the **${title}** (\`${canonicalId}\`) agent.`);
+  lines.push('');
+  lines.push('**Context for this run:** $ARGUMENTS');
+  lines.push('');
+  lines.push('## Before you start');
+  lines.push('');
+  lines.push(`1. Adopt the \`${canonicalId}\` persona — read \`.claude/agents/${canonicalId}.md\` if you are not already that agent, or delegate this whole workflow with the \`Task\` tool using \`subagent_type: "${canonicalId}"\`.`);
+  lines.push('2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.');
+  lines.push('3. Track multi-step progress with `TodoWrite`.');
+  lines.push('');
+
+  if (Array.isArray(val)) {
+    lines.push('## Procedure');
+    lines.push('');
+    let step = 1;
+    for (const el of val) lines.push(`${step++}. ${claudeProcedureStep(el)}`);
+    lines.push('');
+  } else {
+    lines.push('## Goal');
+    lines.push('');
+    lines.push(`${claudeifyText(String(val)).replace(/\.*$/, '')}.`);
+    lines.push('');
+  }
+
+  const tasks = listTasksForAgent(canonicalId);
+  const deps = relevantDependencies(canonicalId);
+  if (tasks.length || deps.templates.length || deps.checklists.length) {
+    lines.push('## Resources');
+    lines.push('');
+    if (tasks.length) {
+      lines.push(`Task definitions in \`${t.resourceRoot}/tasks/\` — follow the matching one exactly:`);
+      lines.push('');
+      for (const task of tasks) lines.push(`- \`${task}\``);
+      lines.push('');
+    }
+    if (deps.templates.length) {
+      lines.push(`Templates in \`${t.resourceRoot}/templates/\`: ${deps.templates.map((x) => `\`${x}\``).join(', ')}`);
+      lines.push('');
+    }
+    if (deps.checklists.length) {
+      lines.push(`Checklists in \`${t.resourceRoot}/checklists/\`: ${deps.checklists.map((x) => `\`${x}\``).join(', ')}`);
+      lines.push('');
+    }
+  }
+
+  lines.push('## Definition of done');
+  lines.push('');
+  lines.push('- The artifact this workflow produces exists on disk (or the decision is written down), not just described in chat.');
+  lines.push('- Every applicable checklist item above is satisfied or explicitly waived with a reason.');
+  lines.push('- You state what you produced, where it lives, and what the next AIgile role should pick up.');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Some command steps are authored as `key: "value"` YAML fragments rather than
+ * prose. Render those as a bolded label plus the sentence so the procedure reads
+ * as instructions instead of as leaked configuration.
+ */
+function claudeProcedureStep(step) {
+  const text = claudeifyText(String(step));
+  const m = text.match(/^([a-z][a-z0-9-]*)\s*:\s*"?(.+?)"?$/i);
+  if (!m) return text;
+  return `**${toTitleCase(m[1])}** — ${m[2]}`;
+}
+
+/**
+ * Minimal reader for the AIgile delivery workflow YAML files in core/workflows/.
+ * Deliberately narrow: it pulls out the header fields and a flat step list, and
+ * the full source YAML is embedded in the generated skill so nothing is lost if
+ * a construct falls outside what this understands.
+ */
+function parseAigileWorkflow(text) {
+  const src = String(text || '');
+  const out = { id: null, name: null, description: '', type: null, projectTypes: [], steps: [] };
+
+  const scalar = (key) => {
+    const m = src.match(new RegExp(`^\\s{2}${key}\\s*:\\s*(.+)$`, 'm'));
+    return m ? m[1].trim().replace(/^["']|["']$/g, '') : null;
+  };
+  out.id = scalar('id');
+  out.name = scalar('name');
+  out.type = scalar('type');
+
+  const desc = src.match(/^\s{2}description\s*:\s*(>-|>|\|-|\|)?\s*\r?\n((?:\s{4}.*\r?\n?)+)/m);
+  if (desc) {
+    out.description = desc[2].split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(' ');
+  } else {
+    out.description = scalar('description') || '';
+  }
+
+  const pt = src.match(/^\s{2}project_types\s*:\s*\r?\n((?:\s{4}-\s*.*\r?\n?)+)/m);
+  if (pt) {
+    out.projectTypes = pt[1].split(/\r?\n/)
+      .map((l) => l.replace(/^\s*-\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  const seq = src.match(/^\s{2}sequence\s*:\s*\r?\n([\s\S]*?)(?=^\s{2}\S|\Z)/m);
+  if (!seq) return out;
+
+  // Split the sequence body on its list markers (4-space indent + "- ").
+  const body = seq[1];
+  const chunks = [];
+  let current = null;
+  for (const line of body.split(/\r?\n/)) {
+    if (/^\s{4}-\s/.test(line)) {
+      if (current) chunks.push(current);
+      current = [line.replace(/^\s{4}-\s/, '      ')];
+    } else if (current) {
+      current.push(line);
+    }
+  }
+  if (current) chunks.push(current);
+
+  for (const chunk of chunks) {
+    const step = {};
+    for (let i = 0; i < chunk.length; i++) {
+      const m = chunk[i].match(/^\s{6}([a-z_]+)\s*:\s*(.*)$/);
+      if (!m) continue;
+      const [, key, rawValue] = m;
+      let value = rawValue.trim();
+      if (value === '|' || value === '>' || value === '|-' || value === '>-') {
+        // Block scalar: consume the more-indented lines that follow.
+        const collected = [];
+        for (let j = i + 1; j < chunk.length; j++) {
+          if (/^\s{8}/.test(chunk[j])) collected.push(chunk[j].trim());
+          else if (!chunk[j].trim()) collected.push('');
+          else break;
+        }
+        value = collected.join(' ').replace(/\s+/g, ' ').trim();
+      } else if (!value) {
+        // Nested list (e.g. `requires:` with list items).
+        const collected = [];
+        for (let j = i + 1; j < chunk.length; j++) {
+          const li = chunk[j].match(/^\s{8}-\s*(.+)$/);
+          if (li) collected.push(li[1].trim());
+          else if (chunk[j].trim()) break;
+        }
+        value = collected.join(', ');
+      }
+      value = value.replace(/^["']|["']$/g, '');
+      if (value) step[key] = value;
+    }
+    if (Object.keys(step).length) out.steps.push(step);
+  }
+  return out;
+}
+
+/**
+ * Generate a delivery-workflow skill from core/workflows/<id>.yaml
+ * (.claude/skills/aigile-workflow-<id>/SKILL.md).
+ */
+function generateClaudeWorkflowSkill({ file, yamlText, target }) {
+  const t = target;
+  const wf = parseAigileWorkflow(yamlText);
+  const id = wf.id || file.replace(/\.ya?ml$/, '');
+  const name = wf.name || toTitleCase(id);
+  const description = wf.description || `Run the AIgile ${name} workflow end to end.`;
+
+  const lines = [];
+  lines.push('---');
+  lines.push(`name: ${t.ns}workflow-${claudeSlug(id)}`);
+  lines.push(`description: "AIgile delivery workflow — ${yamlSingleLine(description)}"`);
+  lines.push('argument-hint: "[what you are building]"');
+  lines.push('disable-model-invocation: true');
+  lines.push('---');
+  lines.push('');
+  lines.push(`# 🔁 ${name}`);
+  lines.push('');
+  lines.push(description);
+  lines.push('');
+  if (wf.projectTypes.length) {
+    lines.push(`**Fits:** ${wf.projectTypes.join(', ')}`);
+    lines.push('');
+  }
+  lines.push('**This run:** $ARGUMENTS');
+  lines.push('');
+  lines.push('## How to run it');
+  lines.push('');
+  lines.push('This is a multi-agent sequence, not a single task. Drive it as the orchestrator:');
+  lines.push('');
+  lines.push('1. Put the whole sequence into `TodoWrite` before starting, one entry per step below.');
+  lines.push('2. For each step, delegate with the `Task` tool using the listed agent as `subagent_type`.');
+  lines.push('   Give each subagent a self-contained brief — it cannot see this conversation.');
+  lines.push('3. Check every produced artifact against the step\'s stated output before advancing.');
+  lines.push('   Save documents under `docs/` so later steps can read them.');
+  lines.push('4. Steps marked optional or conditional need a decision first — use `AskUserQuestion`');
+  lines.push('   rather than silently skipping or silently running them.');
+  lines.push('5. If scope changes mid-flight, stop and go back to `pm`/`po` instead of absorbing it.');
+  lines.push('');
+
+  if (wf.steps.length) {
+    lines.push('## Sequence');
+    lines.push('');
+    lines.push('| # | Agent | Produces | Requires | Notes |');
+    lines.push('|---|-------|----------|----------|-------|');
+    let n = 1;
+    for (const step of wf.steps) {
+      const agent = step.agent ? `\`${step.agent}\`` : (step.step ? `_${step.step.replace(/_/g, ' ')}_` : '—');
+      const produces = step.creates || step.updates || step.validates || step.action || '—';
+      const requires = step.requires || '—';
+      const flags = [];
+      if (step.optional === 'true' || step.optional === true) flags.push('optional');
+      if (step.condition) flags.push(`if ${step.condition}`);
+      if (step.repeats) flags.push(`repeats ${step.repeats}`);
+      if (step.uses) flags.push(`uses ${step.uses}`);
+      const note = [flags.length ? `**${flags.join(', ')}** —` : '', step.notes || ''].join(' ').trim() || '—';
+      lines.push(`| ${n++} | ${agent} | ${produces} | ${requires} | ${yamlSingleLine(note)} |`);
+    }
+    lines.push('');
+  }
+
+  lines.push('## Source definition');
+  lines.push('');
+  lines.push(`The authoritative definition is \`${t.resourceRoot}/workflows/${file}\`. Read it when a step`);
+  lines.push('needs detail the table above does not carry (decision guidance, handoff prompts, flow diagram).');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate the AIgile index skill — the one entry point that explains the
+ * framework and routes to an agent or a workflow.
+ */
+function generateClaudeIndexSkill({ agents, workflows, target }) {
+  const t = target;
+  const lines = [];
+  lines.push('---');
+  lines.push(`name: ${t.indexSkill}`);
+  lines.push('description: "AIgile Development Method — pick the right specialist agent or delivery workflow. Use when a request spans several roles, when unsure which AIgile agent should act, or when the user asks what AIgile offers."');
+  lines.push('---');
+  lines.push('');
+  lines.push('# AIgile Development Method');
+  lines.push('');
+  lines.push('An agent-driven agile framework: specialist subagents, per-role workflows, and delivery');
+  lines.push('sequences that run them in the right order.');
+  lines.push('');
+  lines.push('## Agents');
+  lines.push('');
+  lines.push('Delegate with the `Task` tool, passing the id as `subagent_type`.');
+  lines.push('');
+  lines.push('| Agent | Role | When to use |');
+  lines.push('|-------|------|-------------|');
+  for (const a of agents) {
+    lines.push(`| ${agentIcon(a.id)} \`${a.id}\` | ${a.title} | ${a.description} |`);
+  }
+  lines.push('');
+  lines.push('## Delivery workflows');
+  lines.push('');
+  if (workflows.length) {
+    lines.push('| Workflow | Covers |');
+    lines.push('|----------|--------|');
+    for (const w of workflows) {
+      lines.push(`| \`${t.ref(`workflow-${claudeSlug(w.id)}`)}\` | ${yamlSingleLine(w.description)} |`);
+    }
+    lines.push('');
+  }
+  lines.push('## Routing rules');
+  lines.push('');
+  lines.push('- Pick the role that owns the **artifact being produced**, not the one that consumes it.');
+  lines.push('  A story is `po` work even though `dev` implements it.');
+  lines.push('- Requirements before design, design before implementation, implementation before the');
+  lines.push('  quality gate. Never jump to `dev` for work that has no acceptance criteria.');
+  lines.push('- `qa` runs the gate; `dev` does not self-certify a story.');
+  lines.push('- Architecture changes go through `architect` before `dev` starts, not after.');
+  lines.push('- When scope grows mid-flight, return to `po`/`pm` instead of absorbing the change.');
+  lines.push('');
+  lines.push('## Per-role workflows');
+  lines.push('');
+  lines.push(`Type \`${t.ref('')}\` in chat to see every AIgile workflow, or run the one you want directly —`);
+  lines.push(`for example \`${t.ref('dev-develop-story')}\`, \`${t.ref('po-create-story')}\`, \`${t.ref('qa-quality-gate')}\`.`);
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Read one source agent and resolve the identity fields both Claude Code targets
+ * need. Native `.agent.md` sources carry their identity in YAML frontmatter
+ * rather than in a fenced YAML block, so the two are merged.
+ */
+function claudeAgentSummary(agentId, agentMd) {
+  const opts = { keepEditorNames: CLAUDE_KEEP_EDITOR_NAMES.has(agentId) };
+  const agentMeta = extractAgentMeta(agentMd);
+  const fmMeta = extractFrontmatterMeta(agentMd);
+  if (!agentMeta.title && fmMeta.title) agentMeta.title = fmMeta.title;
+  if (!agentMeta.whenToUse && fmMeta.description) agentMeta.whenToUse = fmMeta.description;
+  const title = claudeifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId), opts);
+  const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
+  return {
+    id: agentId,
+    title,
+    description: yamlSingleLine(claudeifyText(claudeAgentDescription(agentId, agentMeta, title, person), opts)),
+    agentMeta,
+  };
+}
+
+/**
+ * Resolve the source agent definitions in core/agents, preferring the portable
+ * `<id>.md` variant over the Copilot-native `<id>.agent.md` when both exist.
+ * Returns a Map of agentId -> filename, sorted by id.
+ */
+function collectAgentSources(agentsSrcDir) {
+  const agentMap = new Map();
+  if (!fs.existsSync(agentsSrcDir)) return agentMap;
+  for (const f of fs.readdirSync(agentsSrcDir).filter((n) => n.endsWith('.md'))) {
+    const isNativeAgent = f.endsWith('.agent.md');
+    const agentId = isNativeAgent ? f.replace(/\.agent\.md$/, '') : f.replace(/\.[^/.]+$/, '');
+    if (!agentMap.has(agentId)) agentMap.set(agentId, f);
+    else if (!isNativeAgent && agentMap.get(agentId).endsWith('.agent.md')) agentMap.set(agentId, f);
+  }
+  return new Map(Array.from(agentMap.keys()).sort().map((k) => [k, agentMap.get(k)]));
+}
+
+/** Read the AIgile delivery workflows from core/workflows, parsed and sorted. */
+function collectAigileWorkflows() {
+  const dir = path.join(root, 'core', 'workflows');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
+    .sort()
+    .map((file) => {
+      const yamlText = read(path.join(dir, file));
+      const parsed = parseAigileWorkflow(yamlText);
+      return {
+        file,
+        yamlText,
+        id: parsed.id || file.replace(/\.ya?ml$/, ''),
+        name: parsed.name || toTitleCase(file.replace(/\.ya?ml$/, '')),
+        description: parsed.description || `The AIgile ${file.replace(/\.ya?ml$/, '')} workflow.`,
+      };
+    });
+}
+
+/**
+ * Copy the AIgile-authored skills (core/skills/<name>/SKILL.md) to a Claude Code
+ * skills directory, adapting Kiro-specific wording and (for the plugin build)
+ * the skill name. Returns the number of skills written.
+ */
+function writeClaudeCoreSkills(skillsDir, target) {
+  const srcSkills = path.join(root, 'core', 'skills');
+  if (!fs.existsSync(srcSkills)) return 0;
+  let count = 0;
+  for (const entry of fs.readdirSync(srcSkills, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const srcFile = path.join(srcSkills, entry.name, 'SKILL.md');
+    if (!fs.existsSync(srcFile)) continue;
+    const outName = claudeCoreSkillName(entry.name, target);
+    const raw = read(srcFile);
+    const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+    let outContent;
+    if (fmMatch) {
+      const fm = fmMatch[1]
+        .replace(/^name\s*:\s*.+$/m, `name: ${outName}`)
+        .split(/\r?\n/)
+        .map((line) => (/^description\s*:/.test(line) ? claudeifySkill(line, target) : line))
+        .join('\n');
+      outContent = `---\n${fm}\n---\n\n${claudeifySkill(fmMatch[2], target)}\n`;
+    } else {
+      outContent = `${claudeifySkill(raw, target)}\n`;
+    }
+    write(path.join(skillsDir, outName, 'SKILL.md'), outContent);
+    // Carry over any supporting files the skill ships alongside SKILL.md.
+    for (const extra of fs.readdirSync(path.join(srcSkills, entry.name))) {
+      if (extra === 'SKILL.md') continue;
+      const from = path.join(srcSkills, entry.name, extra);
+      const to = path.join(skillsDir, outName, extra);
+      if (fs.statSync(from).isDirectory()) copyDir(from, to);
+      else write(to, read(from));
+    }
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Write every generated skill (core + per-command workflows + delivery workflows
+ * + index) into `skillsDir`. Returns counts per category.
+ */
+function writeClaudeSkills({ skillsDir, agents, agentSources, workflows, target }) {
+  const core = writeClaudeCoreSkills(skillsDir, target);
+
+  const titles = new Map(agents.map((a) => [a.id, a.title]));
+  let commandSkills = 0;
+  for (const agentId of agentSources.keys()) {
+    const canonicalId = canonicalAgentId(agentId);
+    for (const command of claudeWorkflowCommands(agentId)) {
+      const key = Object.keys(command)[0];
+      const name = `${target.ns}${canonicalId}-${key}`;
+      write(
+        path.join(skillsDir, name, 'SKILL.md'),
+        generateClaudeCommandSkill({
+          agentId,
+          command,
+          target,
+          agentTitle: titles.get(agentId) || titles.get(canonicalId),
+        })
+      );
+      commandSkills++;
+    }
+  }
+
+  let workflowSkills = 0;
+  for (const wf of workflows) {
+    const name = `${target.ns}workflow-${claudeSlug(wf.id)}`;
+    write(
+      path.join(skillsDir, name, 'SKILL.md'),
+      generateClaudeWorkflowSkill({ file: wf.file, yamlText: wf.yamlText, target })
+    );
+    workflowSkills++;
+  }
+
+  write(
+    path.join(skillsDir, target.indexSkill, 'SKILL.md'),
+    generateClaudeIndexSkill({ agents, workflows, target })
+  );
+
+  return { core, commandSkills, workflowSkills, index: 1, total: core + commandSkills + workflowSkills + 1 };
+}
+
+/**
+ * Generate the AIgile section for the project's CLAUDE.md.
+ */
+function generateClaudeMdSection({ agents, workflows, target }) {
+  const t = target;
+  const lines = [];
+  lines.push('## AIgile Development Method');
+  lines.push('');
+  lines.push('This workspace uses the **AIgile Development Method** — a pragmatic, agent-driven agile');
+  lines.push('framework. Specialist subagents live in `.claude/agents/`, their workflows are skills in');
+  lines.push('`.claude/skills/`, and the shared task/template/checklist library is in `.aigile-core/`.');
+  lines.push('');
+  lines.push('### Agent team');
+  lines.push('');
+  lines.push('Delegate with the `Task` tool, passing the id as `subagent_type` (for example');
+  lines.push('`subagent_type: "po"` to draft stories). Route work to the agent that owns the artifact');
+  lines.push('being produced, not the one that consumes it.');
+  lines.push('');
+  lines.push('| Agent | Role | When to use |');
+  lines.push('|-------|------|-------------|');
+  for (const a of agents) {
+    lines.push(`| ${agentIcon(a.id)} \`${a.id}\` | ${a.title} | ${a.description} |`);
+  }
+  lines.push('');
+  lines.push('Run `aigile-orchestrator` or `aigile-manual-orchestrator` from the **main** session when you');
+  lines.push('want one of them to coordinate the team. Claude Code does not nest delegation, so an');
+  lines.push('orchestrator launched as a subagent can only hand back briefs instead of dispatching them.');
+  lines.push('The manual orchestrator additionally asks for confirmation before every delegation.');
+  lines.push('');
+  lines.push('### Workflows');
+  lines.push('');
+  lines.push(`Start with \`${t.indexRef}\` for routing help. Per-role workflows are skills — type \`${t.ref('')}\` in`);
+  lines.push('chat to browse them, or run one directly:');
+  lines.push('');
+  lines.push(`- \`${t.ref('po-create-story')}\` — write a story with acceptance criteria`);
+  lines.push(`- \`${t.ref('dev-develop-story')}\` — implement the next story test-first`);
+  lines.push(`- \`${t.ref('qa-quality-gate')}\` — run the gate and issue a PASS/CONCERNS/FAIL decision`);
+  lines.push('');
+  if (workflows.length) {
+    lines.push('End-to-end delivery sequences (multi-agent, orchestrator-driven):');
+    lines.push('');
+    for (const w of workflows) lines.push(`- \`${t.ref(`workflow-${claudeSlug(w.id)}`)}\``);
+    lines.push('');
+  }
+  lines.push('### Working agreements');
+  lines.push('');
+  lines.push('- Requirements before design, design before implementation, implementation before the');
+  lines.push('  quality gate. Never start `dev` work that has no acceptance criteria.');
+  lines.push('- `qa` runs the gate; `dev` does not self-certify a story.');
+  lines.push('- Architecture changes go through `architect` before implementation, not after.');
+  lines.push('- Save produced documents under `docs/` so later steps and agents can read them.');
+  lines.push('- When scope grows mid-flight, stop and return to `po`/`pm` instead of absorbing it.');
+  lines.push('');
+  return lines.join('\n');
+}
+
+const AIGILE_MD_START = '<!-- AIGILE:START -->';
+const AIGILE_MD_END = '<!-- AIGILE:END -->';
+
+/**
+ * Write the AIgile block into CLAUDE.md without disturbing anything the user
+ * wrote around it. Re-running the installer replaces only the marked block.
+ */
+function writeClaudeMd(dest, section) {
+  const target = path.join(dest, 'CLAUDE.md');
+  const block = `${AIGILE_MD_START}\n${section}${AIGILE_MD_END}`;
+  if (!fs.existsSync(target)) {
+    write(target, `# Project instructions\n\n${block}\n`);
+    console.log('✅ Created CLAUDE.md with the AIgile section');
+    return 'created';
+  }
+  const existing = read(target);
+  const startIdx = existing.indexOf(AIGILE_MD_START);
+  const endIdx = existing.indexOf(AIGILE_MD_END);
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const next = existing.slice(0, startIdx) + block + existing.slice(endIdx + AIGILE_MD_END.length);
+    write(target, next);
+    console.log('✅ Updated the AIgile section in CLAUDE.md');
+    return 'updated';
+  }
+  write(target, `${existing.replace(/\s*$/, '')}\n\n${block}\n`);
+  console.log('✅ Appended the AIgile section to CLAUDE.md');
+  return 'appended';
+}
+
+/**
+ * Convert mcp/servers.json into a project-scoped .mcp.json for Claude Code.
+ * Claude Code uses the `mcpServers` key and has no VS Code style `${input:...}`
+ * prompts, so those become plain environment-variable references.
+ */
+function writeClaudeMcpJson(dest) {
+  const target = path.join(dest, '.mcp.json');
+  const doc = readJsonIfExists(path.join(root, 'mcp', 'servers.json'));
+  if (!doc || !doc.servers) {
+    console.warn('⚠️ mcp/servers.json not found — skipped .mcp.json');
+    return false;
+  }
+  const toEnvRef = (v) => typeof v === 'string'
+    ? v.replace(/\$\{input:([A-Za-z0-9_.-]+)\}/g, (_m, id) => `\${${id.replace(/[.-]/g, '_').toUpperCase()}}`)
+    : v;
+
+  const existing = readJsonIfExists(target) || {};
+  const mcpServers = { ...(existing.mcpServers || {}) };
+  const referencedVars = new Set();
+  const noteVars = (value) => {
+    if (typeof value !== 'string') return;
+    for (const m of value.matchAll(/\$\{([A-Z0-9_]+)\}/g)) referencedVars.add(m[1]);
+  };
+
+  for (const [id, cfg] of Object.entries(doc.servers)) {
+    const next = {};
+    if (cfg.url) {
+      next.type = cfg.type === 'sse' ? 'sse' : 'http';
+      next.url = toEnvRef(cfg.url);
+      noteVars(next.url);
+    } else {
+      next.type = 'stdio';
+      if (cfg.command) next.command = cfg.command;
+      if (Array.isArray(cfg.args)) {
+        next.args = cfg.args.map(toEnvRef);
+        next.args.forEach(noteVars);
+      }
+    }
+    if (cfg.env) {
+      next.env = {};
+      for (const [k, v] of Object.entries(cfg.env)) {
+        next.env[k] = toEnvRef(v);
+        noteVars(next.env[k]);
+      }
+    }
+    if (cfg.headers) {
+      next.headers = {};
+      for (const [k, v] of Object.entries(cfg.headers)) {
+        next.headers[k] = toEnvRef(v);
+        noteVars(next.headers[k]);
+      }
+    }
+    mcpServers[id] = { ...(mcpServers[id] || {}), ...next };
+  }
+
+  write(target, JSON.stringify({ ...existing, mcpServers }, null, 2) + '\n');
+  console.log('✅ Installed MCP servers into .mcp.json');
+  if (referencedVars.size) {
+    console.log(`   Set these before starting Claude Code: ${Array.from(referencedVars).sort().join(', ')}`);
+  }
+  console.log('   Claude Code asks once per project before it trusts .mcp.json servers.');
+  return true;
+}
+
+/**
+ * Merge AIgile's settings into .claude/settings.json without removing anything
+ * already there. Deliberately conservative: it only pre-approves reads of the
+ * framework's own files so agents stop prompting for their task definitions.
+ */
+function writeClaudeSettings(dest) {
+  const target = path.join(dest, '.claude', 'settings.json');
+  const existing = readJsonIfExists(target) || {};
+  const wanted = [
+    'Read(./.aigile-core/**)',
+    'Glob(./.aigile-core/**)',
+    'Grep(./.aigile-core/**)',
+  ];
+  const permissions = { ...(existing.permissions || {}) };
+  const allow = Array.isArray(permissions.allow) ? [...permissions.allow] : [];
+  let added = 0;
+  for (const rule of wanted) {
+    if (!allow.includes(rule)) { allow.push(rule); added++; }
+  }
+  permissions.allow = allow;
+  write(target, JSON.stringify({ ...existing, permissions }, null, 2) + '\n');
+  console.log(`✅ Updated .claude/settings.json (${added} permission rule${added === 1 ? '' : 's'} added)`);
+  return added;
+}
+
+/**
+ * Install AIgile for Claude Code.
+ * Creates .aigile-core/, .claude/agents/, .claude/skills/, CLAUDE.md and
+ * .claude/settings.json.
+ */
+function installClaudeCode(dest) {
+  const target = claudeTarget('project');
+
+  // 1) Copy core to .aigile-core (shared with the other platforms)
+  const srcCore = path.join(root, 'core');
+  const dstCore = path.join(dest, '.aigile-core');
+  if (fs.existsSync(srcCore)) copyDir(srcCore, dstCore);
+
+  // 2) Subagents
+  const agentsSrcDir = path.join(srcCore, 'agents');
+  const agentsDir = path.join(dest, '.claude', 'agents');
+  fs.mkdirSync(agentsDir, { recursive: true });
+  const agentSources = collectAgentSources(agentsSrcDir);
+  const allAgents = [];
+
+  for (const [agentId, file] of agentSources) {
+    const agentMd = read(path.join(agentsSrcDir, file));
+    const summary = claudeAgentSummary(agentId, agentMd);
+    allAgents.push({ id: summary.id, title: summary.title, description: summary.description });
+    write(path.join(agentsDir, `${agentId}.md`), generateClaudeAgent({
+      agentId,
+      agentMeta: summary.agentMeta,
+      agentMd,
+      tasks: listTasksForAgent(agentId),
+      target,
+    }));
+  }
+  console.log(`✅ Created ${allAgents.length} subagents in .claude/agents/`);
+
+  // 3) Skills — AIgile core skills, per-command workflows, delivery workflows, index
+  const workflows = collectAigileWorkflows();
+  const skills = writeClaudeSkills({
+    skillsDir: path.join(dest, '.claude', 'skills'),
+    agents: allAgents,
+    agentSources,
+    workflows,
+    target,
+  });
+  console.log(`✅ Created ${skills.total} skills in .claude/skills/ (${skills.core} AIgile, ${skills.commandSkills} agent workflows, ${skills.workflowSkills} delivery workflows, 1 index)`);
+
+  // 4) Always-on project context
+  writeClaudeMd(dest, generateClaudeMdSection({ agents: allAgents, workflows, target }));
+
+  // 5) Project settings
+  writeClaudeSettings(dest);
+
+  const green = (s) => `\x1b[32m${s}\x1b[0m`;
+  console.log(green('✅ Installed AIgile for Claude Code into'), dest);
+
+  return { agents: allAgents.length, skills, workflows: workflows.length };
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code plugin build
+// A plugin is the zero-install path: users add this repo as a marketplace and
+// install `aigile`, which brings the agents and skills with it. Everything under
+// plugin/ is generated — edit core/ and re-run `aigile bundle`.
+// ---------------------------------------------------------------------------
+
+const CLAUDE_PLUGIN_DIR = 'plugin';
+const CLAUDE_PLUGIN_NAME = 'aigile';
+const CLAUDE_MARKETPLACE_NAME = 'aigile-method';
+
+function generateClaudePluginReadme({ agentCount, skills, workflows }) {
+  return [
+    '# AIgile Method — Claude Code plugin',
+    '',
+    '> Generated by `aigile bundle`. Do not edit by hand — the source of truth is `core/`',
+    '> in the [AIgile Method repository](https://github.com/Gmark2000/AIgile-Method).',
+    '',
+    '## Install',
+    '',
+    '```',
+    `/plugin marketplace add Gmark2000/AIgile-Method`,
+    `/plugin install ${CLAUDE_PLUGIN_NAME}@${CLAUDE_MARKETPLACE_NAME}`,
+    '```',
+    '',
+    '## What you get',
+    '',
+    `- **${agentCount} specialist subagents** — delegate with the \`Task\` tool, e.g. \`subagent_type: "po"\`.`,
+    `- **${skills.commandSkills} per-role workflows** — \`/aigile:dev-develop-story\`, \`/aigile:qa-quality-gate\`, ...`,
+    `- **${workflows} delivery workflows** — \`/aigile:workflow-greenfield-fullstack\` and friends.`,
+    `- **${skills.core} AIgile skills** that activate automatically when a request matches.`,
+    '- `/aigile:method` — routing help when you are not sure who should do the work.',
+    '',
+    '## MCP servers',
+    '',
+    'The plugin ships no MCP servers, so nothing tries to start Docker behind your back.',
+    'To wire up Jira, Confluence, GitHub, Figma or Playwright for the AIgile agents, run:',
+    '',
+    '```',
+    'npx @mark-gozner/aigile-method install --for-claude --with-mcp',
+    '```',
+    '',
+    'That writes a project `.mcp.json` alongside the framework resources in `.aigile-core/`.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Build the distributable Claude Code plugin and the marketplace entry that
+ * points at it. Called from `bundle()`.
+ */
+function buildClaudePlugin() {
+  const target = claudeTarget('plugin');
+  const pluginRoot = path.join(root, CLAUDE_PLUGIN_DIR);
+
+  // Everything below is generated; clear it so deletions in core/ propagate.
+  for (const sub of ['agents', 'skills', 'core', '.claude-plugin']) {
+    fs.rmSync(path.join(pluginRoot, sub), { recursive: true, force: true });
+  }
+
+  const srcCore = path.join(root, 'core');
+  const agentSources = collectAgentSources(path.join(srcCore, 'agents'));
+  const allAgents = [];
+
+  for (const [agentId, file] of agentSources) {
+    const agentMd = read(path.join(srcCore, 'agents', file));
+    const summary = claudeAgentSummary(agentId, agentMd);
+    allAgents.push({ id: summary.id, title: summary.title, description: summary.description });
+    write(path.join(pluginRoot, 'agents', `${agentId}.md`), generateClaudeAgent({
+      agentId,
+      agentMeta: summary.agentMeta,
+      agentMd,
+      tasks: listTasksForAgent(agentId),
+      target,
+    }));
+  }
+
+  const workflows = collectAigileWorkflows();
+  const skills = writeClaudeSkills({
+    skillsDir: path.join(pluginRoot, 'skills'),
+    agents: allAgents,
+    agentSources,
+    workflows,
+    target,
+  });
+
+  // The plugin carries its own copy of the framework resources, reached from
+  // skills and agents through ${CLAUDE_PLUGIN_ROOT}.
+  for (const bucket of ['tasks', 'templates', 'checklists', 'data', 'workflows']) {
+    const from = path.join(srcCore, bucket);
+    if (fs.existsSync(from)) copyDir(from, path.join(pluginRoot, 'core', bucket));
+  }
+
+  const version = getPackageVersion();
+  const pluginJson = {
+    name: CLAUDE_PLUGIN_NAME,
+    version,
+    description: 'AIgile Development Method — specialist agents, per-role workflows, and end-to-end delivery sequences.',
+    author: { name: 'Mark Gozner', url: 'https://github.com/Gmark2000' },
+    homepage: 'https://github.com/Gmark2000/AIgile-Method',
+    repository: 'https://github.com/Gmark2000/AIgile-Method',
+    license: 'SEE LICENSE',
+    keywords: ['agile', 'agents', 'scrum', 'workflow', 'qa', 'architecture', 'product'],
+  };
+  write(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), JSON.stringify(pluginJson, null, 2) + '\n');
+  write(path.join(pluginRoot, 'README.md'), generateClaudePluginReadme({
+    agentCount: allAgents.length,
+    skills,
+    workflows: workflows.length,
+  }));
+
+  const marketplace = {
+    name: CLAUDE_MARKETPLACE_NAME,
+    owner: { name: 'Mark Gozner', url: 'https://github.com/Gmark2000' },
+    metadata: {
+      description: 'The AIgile Development Method for Claude Code.',
+      version: version,
+    },
+    plugins: [
+      {
+        name: CLAUDE_PLUGIN_NAME,
+        source: `./${CLAUDE_PLUGIN_DIR}`,
+        description: pluginJson.description,
+        version,
+        author: pluginJson.author,
+        homepage: pluginJson.homepage,
+        license: pluginJson.license,
+        keywords: pluginJson.keywords,
+      },
+    ],
+  };
+  write(path.join(root, '.claude-plugin', 'marketplace.json'), JSON.stringify(marketplace, null, 2) + '\n');
+
+  console.log(`✅ Wrote ${CLAUDE_PLUGIN_DIR}/ Claude Code plugin (${allAgents.length} agents, ${skills.total} skills)`);
+  console.log('✅ Wrote .claude-plugin/marketplace.json');
+  return { agents: allAgents.length, skills, workflows: workflows.length };
+}
+
+// ---------------------------------------------------------------------------
+// Agent Skills (https://agentskills.io) — Kiro reads them from .kiro/skills/
+// ---------------------------------------------------------------------------
+
+/** Load the curated third-party skill registry shipped with AIgile. */
+function loadSkillsRegistry() {
+  const doc = readJsonIfExists(path.join(root, 'core', 'skills-registry.json'));
+  return Array.isArray(doc?.skills) ? doc.skills : [];
+}
+
+/**
+ * Copy the AIgile-authored skills (core/skills/<name>/SKILL.md) into .kiro/skills/.
+ * Returns the number of skills installed.
+ */
+function installKiroSkills(dest) {
+  const srcSkills = path.join(root, 'core', 'skills');
+  if (!fs.existsSync(srcSkills)) return 0;
+  const dstSkills = path.join(dest, '.kiro', 'skills');
+  let count = 0;
+  for (const entry of fs.readdirSync(srcSkills, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!fs.existsSync(path.join(srcSkills, entry.name, 'SKILL.md'))) continue;
+    copyDir(path.join(srcSkills, entry.name), path.join(dstSkills, entry.name));
+    count++;
+  }
+  if (count) console.log(`✅ Created ${count} AIgile skills in .kiro/skills/`);
+  return count;
+}
+
+/** Fetch (and memoize) a repo file tree from the GitHub API. */
+const githubTreeCache = new Map();
+async function fetchGithubTree(repo, ref) {
+  const key = `${repo}@${ref}`;
+  if (githubTreeCache.has(key)) return githubTreeCache.get(key);
+  const url = `https://api.github.com/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'aigile-method-installer',
+      ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`GitHub API ${res.status} for ${repo}@${ref}${res.status === 403 ? ' (rate limited — set GITHUB_TOKEN)' : ''}`);
+  }
+  const json = await res.json();
+  const tree = Array.isArray(json.tree) ? json.tree : [];
+  githubTreeCache.set(key, tree);
+  return tree;
+}
+
+const SKILL_MAX_FILE_BYTES = 1024 * 1024; // 1 MB
+const SKILL_MAX_FILES = 80;
+
+/**
+ * Download one registry skill from its source repository into `skillsDir`.
+ * Writes an ATTRIBUTION.md next to the skill recording source, author, and license.
+ */
+async function fetchCommunitySkill(entry, skillsDir) {
+  const folder = path.basename(entry.path);
+  const tree = await fetchGithubTree(entry.repo, entry.ref || 'main');
+  const prefix = `${entry.path.replace(/\/+$/, '')}/`;
+  const blobs = tree.filter(n => n.type === 'blob' && n.path.startsWith(prefix));
+  if (!blobs.length) throw new Error(`no files found at ${entry.repo}/${entry.path}`);
+  if (!blobs.some(b => b.path === `${prefix}SKILL.md`)) throw new Error(`no SKILL.md at ${entry.repo}/${entry.path}`);
+  if (blobs.length > SKILL_MAX_FILES) throw new Error(`skill has ${blobs.length} files (limit ${SKILL_MAX_FILES})`);
+
+  const targetDir = path.join(skillsDir, folder);
+  let written = 0;
+  for (const blob of blobs) {
+    if (typeof blob.size === 'number' && blob.size > SKILL_MAX_FILE_BYTES) {
+      console.warn(`   ⚠️ skipped oversized file ${blob.path} (${blob.size} bytes)`);
+      continue;
+    }
+    const rel = blob.path.slice(prefix.length);
+    // Defend against path traversal from a hostile tree listing
+    const outPath = path.join(targetDir, rel);
+    if (!path.resolve(outPath).startsWith(path.resolve(targetDir) + path.sep)) {
+      console.warn(`   ⚠️ skipped suspicious path ${blob.path}`);
+      continue;
+    }
+    const rawUrl = `https://raw.githubusercontent.com/${entry.repo}/${entry.ref || 'main'}/${blob.path.split('/').map(encodeURIComponent).join('/')}`;
+    const res = await fetch(rawUrl, { headers: { 'User-Agent': 'aigile-method-installer' } });
+    if (!res.ok) throw new Error(`download failed (${res.status}) for ${blob.path}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, buf);
+    written++;
+  }
+
+  const attribution = [
+    `# ${entry.title || folder} — attribution`,
+    '',
+    `This skill is **not** part of AIgile. It was downloaded from its source repository by`,
+    '`aigile skills:add` and is redistributed here only inside your workspace.',
+    '',
+    `- Source: ${entry.homepage || `https://github.com/${entry.repo}`}`,
+    `- Repository path: \`${entry.repo}@${entry.ref || 'main'}:${entry.path}\``,
+    `- Author: ${entry.author || 'see repository'}`,
+    `- License: ${entry.license || 'see repository'}`,
+    `- Retrieved: ${new Date().toISOString()}`,
+    '',
+    'Review the upstream license before redistributing. Update with `aigile skills:add ' + entry.id + '`.',
+    '',
+  ].join('\n');
+  write(path.join(targetDir, 'ATTRIBUTION.md'), attribution);
+
+  return { id: entry.id, folder, files: written };
+}
+
+/**
+ * Add community skills by registry id. `ids` may be ['--all'] or ['--recommended'].
+ */
+async function addCommunitySkills(ids, { dest = process.cwd(), globalScope = false } = {}) {
+  const registry = loadSkillsRegistry();
+  if (!registry.length) {
+    console.warn('⚠️ No skills registry found (core/skills-registry.json).');
+    return { added: [], failed: [] };
+  }
+  let selected;
+  if (!ids.length || ids.includes('--recommended')) {
+    selected = registry.filter(s => s.recommended);
+  } else if (ids.includes('--all')) {
+    selected = registry;
+  } else {
+    selected = [];
+    for (const id of ids) {
+      const found = registry.find(s => s.id === id);
+      if (found) selected.push(found);
+      else console.warn(`⚠️ Unknown skill id: ${id} (run \`aigile skills:list\`)`);
+    }
+  }
+  if (!selected.length) return { added: [], failed: [] };
+
+  const skillsDir = globalScope
+    ? path.join(getUserHome(), '.kiro', 'skills')
+    : path.join(dest, '.kiro', 'skills');
+  fs.mkdirSync(skillsDir, { recursive: true });
+
+  const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+  console.log(`\nFetching ${selected.length} community skill(s) into ${skillsDir}`);
+  console.log(yellow('These are third-party skills fetched from public GitHub repositories. Review them before use.'));
+
+  const added = [];
+  const failed = [];
+  for (const entry of selected) {
+    try {
+      const result = await fetchCommunitySkill(entry, skillsDir);
+      added.push(result);
+      console.log(`  ✅ ${entry.id} (${result.files} files) — ${entry.license || 'see repository'}, ${entry.author || 'see repository'}`);
+    } catch (e) {
+      failed.push({ id: entry.id, error: e.message });
+      console.warn(`  ⚠️ ${entry.id}: ${e.message}`);
+    }
+  }
+  return { added, failed };
+}
+
+function skillsListCommand() {
+  const registry = loadSkillsRegistry();
+  const bundledDir = path.join(root, 'core', 'skills');
+  const bundled = fs.existsSync(bundledDir)
+    ? fs.readdirSync(bundledDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+    : [];
+
+  console.log('\nAIgile skills (installed with --for-kiro into .kiro/skills/):');
+  for (const name of bundled) console.log(`  - ${name}`);
+
+  console.log('\nCommunity skills (fetch with `aigile skills:add <id>`):');
+  for (const s of registry) {
+    const star = s.recommended ? '*' : ' ';
+    console.log(`  ${star} ${s.id.padEnd(22)} ${s.title} — ${s.license || 'see repository'} (${s.author || 'see repository'})`);
+    console.log(`    ${s.description}`);
+    console.log(`    ${s.homepage || `https://github.com/${s.repo}`}`);
+  }
+  console.log('\n  * = fetched by `aigile skills:add` with no arguments, and by `install --with-community-skills`');
+  console.log('  Flags: --all (every registry skill), --global (install into ~/.kiro/skills)');
+}
+
+/**
+ * Install AIgile for Kiro.
+ * Creates .aigile-core/, .kiro/agents/, .kiro/steering/ and .kiro/skills/.
+ */
+function installKiro(dest) {
+  // 1) Copy core to .aigile-core (shared with the other platforms)
+  const srcCore = path.join(root, 'core');
+  const dstCore = path.join(dest, '.aigile-core');
+  if (fs.existsSync(srcCore)) copyDir(srcCore, dstCore);
+
+  // 2) Generate Kiro custom agents
+  const agentsSrcDir = path.join(srcCore, 'agents');
+  const kiroAgentsDir = path.join(dest, '.kiro', 'agents');
+  const kiroSteeringDir = path.join(dest, '.kiro', 'steering');
+  fs.mkdirSync(kiroAgentsDir, { recursive: true });
+  fs.mkdirSync(kiroSteeringDir, { recursive: true });
+
+  const allAgents = [];
+  let steeringCount = 0;
+
+  if (fs.existsSync(agentsSrcDir)) {
+    const files = fs.readdirSync(agentsSrcDir).filter(f => f.endsWith('.md'));
+    // Prefer the source `.md` definition over the native `.agent.md` variant
+    const agentMap = new Map();
+    for (const f of files) {
+      const isNativeAgent = f.endsWith('.agent.md');
+      const agentId = isNativeAgent ? f.replace(/\.agent\.md$/, '') : f.replace(/\.[^/.]+$/, '');
+      if (!agentMap.has(agentId)) {
+        agentMap.set(agentId, f);
+      } else if (!isNativeAgent && agentMap.get(agentId).endsWith('.agent.md')) {
+        agentMap.set(agentId, f);
+      }
+    }
+
+    for (const agentId of Array.from(agentMap.keys()).sort()) {
+      const agentMd = read(path.join(agentsSrcDir, agentMap.get(agentId)));
+      const agentMeta = extractAgentMeta(agentMd);
+      // Native `.agent.md` sources carry their identity in YAML frontmatter, not in a
+      // fenced YAML block, so fill the gaps from there.
+      const fmMeta = extractFrontmatterMeta(agentMd);
+      if (!agentMeta.title && fmMeta.title) agentMeta.title = fmMeta.title;
+      if (!agentMeta.whenToUse && fmMeta.description) agentMeta.whenToUse = fmMeta.description;
+      const agentTitle = kiroifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId));
+      allAgents.push({
+        id: agentId,
+        title: agentTitle,
+        description: yamlSingleLine(kiroifyText(agentMeta.whenToUse || `${agentTitle} responsibilities and workflows.`)),
+      });
+
+      write(path.join(kiroAgentsDir, `${agentId}.md`), generateKiroAgent({
+        agentId,
+        agentMeta,
+        agentMd,
+        tasks: listTasksForAgent(agentId),
+      }));
+
+      const workflowSteering = generateKiroWorkflowSteering(agentId);
+      if (workflowSteering) {
+        // Avoid `aigile-aigile-*` slash commands for the aigile-prefixed agents
+        const slug = `aigile-${agentId.replace(/^aigile-/, '')}-workflows`;
+        write(path.join(kiroSteeringDir, `${slug}.md`), workflowSteering);
+        steeringCount++;
+      }
+    }
+  }
+
+  // 3) Always-on framework steering
+  write(path.join(kiroSteeringDir, 'aigile-method.md'), generateKiroSteering(allAgents));
+  steeringCount++;
+
+  const green = (s) => `\x1b[32m${s}\x1b[0m`;
+  console.log(`✅ Created ${allAgents.length} custom agents in .kiro/agents/`);
+  console.log(`✅ Created ${steeringCount} steering files in .kiro/steering/`);
+
+  // 4) AIgile-authored Agent Skills
+  const skills = installKiroSkills(dest);
+
+  console.log(green('✅ Installed AIgile for Kiro into'), dest);
+
+  return { agents: allAgents.length, steering: steeringCount, skills };
+}
+
 function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyFormat = false } = {}) {
   // 1) Copy core to .aigile-core (clean, IDE-friendly)
   const srcCore = path.join(root, 'core');
@@ -2130,7 +4230,7 @@ function maybeAddConsumerScripts(dest) {
   } catch { /* ignore */ }
 }
 
-function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false, forAntigravity = false } = {}) {
+function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJavaInstructions = false, forAntigravity = false, forKiro = false, forClaude = false } = {}) {
   try {
     const manifest = {
       name: '@mark-gozner/aigile-method',
@@ -2152,7 +4252,7 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
     };
     const agentsDir = path.join(dest, '.aigile-core', 'agents');
     if (fs.existsSync(agentsDir)) {
-      manifest.agents = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).map(f => f.replace(/\\.agent\\.md$/, '').replace(/\\.md$/, ''));
+      manifest.agents = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).map(f => f.replace(/\.agent\.md$/, '').replace(/\.md$/, ''));
     }
     // Count new custom agents format
     const customAgentsDir = path.join(dest, '.github', 'agents');
@@ -2178,6 +4278,40 @@ function writeManifest(dest, { addMcpJson = false, addMcpSettings = false, addJa
         geminiMd: fs.existsSync(path.join(dest, 'GEMINI.md'))
       };
     }
+    // Kiro output tracking
+    if (forKiro) {
+      const kiroAgentsDir = path.join(dest, '.kiro', 'agents');
+      const kiroSteeringDir = path.join(dest, '.kiro', 'steering');
+      const kiroSkillsDir = path.join(dest, '.kiro', 'skills');
+      const skillDirs = fs.existsSync(kiroSkillsDir)
+        ? fs.readdirSync(kiroSkillsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+        : [];
+      manifest.kiro = {
+        agents: fs.existsSync(kiroAgentsDir) ? fs.readdirSync(kiroAgentsDir).filter(f => f.endsWith('.md')).length : 0,
+        steering: fs.existsSync(kiroSteeringDir) ? fs.readdirSync(kiroSteeringDir).filter(f => f.startsWith('aigile-') && f.endsWith('.md')).length : 0,
+        skills: skillDirs.length,
+        aigileSkills: skillDirs.filter(n => n.startsWith('aigile-')).length,
+        communitySkills: skillDirs.filter(n => !n.startsWith('aigile-')).length,
+        mcpJson: fs.existsSync(path.join(dest, '.kiro', 'settings', 'mcp.json'))
+      };
+    }
+    // Claude Code output tracking
+    if (forClaude) {
+      const claudeAgentsDir = path.join(dest, '.claude', 'agents');
+      const claudeSkillsDir = path.join(dest, '.claude', 'skills');
+      const skillDirs = fs.existsSync(claudeSkillsDir)
+        ? fs.readdirSync(claudeSkillsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+        : [];
+      manifest.claude = {
+        agents: fs.existsSync(claudeAgentsDir) ? fs.readdirSync(claudeAgentsDir).filter(f => f.endsWith('.md')).length : 0,
+        skills: skillDirs.length,
+        agentWorkflows: skillDirs.filter(nm => /^aigile-.+-.+/.test(nm) && !nm.startsWith('aigile-workflow-')).length,
+        deliveryWorkflows: skillDirs.filter(nm => nm.startsWith('aigile-workflow-')).length,
+        claudeMd: fs.existsSync(path.join(dest, 'CLAUDE.md')),
+        settings: fs.existsSync(path.join(dest, '.claude', 'settings.json')),
+        mcpJson: fs.existsSync(path.join(dest, '.mcp.json'))
+      };
+    }
     write(path.join(dest, '.aigile-manifest.json'), JSON.stringify(manifest, null, 2));
   } catch { /* ignore */ }
 }
@@ -2190,7 +4324,7 @@ function showStatus(cwd) {
   }
   try {
     const data = JSON.parse(read(manifestPath));
-    console.log('\\nAIgile Installation Status');
+    console.log('\nAIgile Installation Status');
     console.log('---------------------------');
     console.log(`Version:        ${data.version}`);
     console.log(`Installed At:   ${data.installedAt}`);
@@ -2205,13 +4339,34 @@ function showStatus(cwd) {
       console.log(`Java Instructions: ${data.instructions.java ? 'yes' : 'no'}`);
     }
     if (data.features) {
-      console.log('\\nFeatures:');
+      console.log('\nFeatures:');
       console.log(`  - Custom Agents: ${data.features.customAgents ? 'yes' : 'no'}`);
       console.log(`  - Handoffs: ${data.features.handoffs ? 'yes' : 'no'}`);
       console.log(`  - runSubagent: ${data.features.runSubagent ? 'yes' : 'no'}`);
     }
+    if (data.antigravity) {
+      console.log('\nAntigravity:');
+      console.log(`  - Rules: ${data.antigravity.rules || 0}`);
+      console.log(`  - Workflows: ${data.antigravity.workflows || 0}`);
+      console.log(`  - GEMINI.md: ${data.antigravity.geminiMd ? 'yes' : 'no'}`);
+    }
+    if (data.kiro) {
+      console.log('\nKiro:');
+      console.log(`  - Custom Agents: ${data.kiro.agents || 0}`);
+      console.log(`  - Steering Files: ${data.kiro.steering || 0}`);
+      console.log(`  - Skills: ${data.kiro.skills || 0} (AIgile: ${data.kiro.aigileSkills || 0}, community: ${data.kiro.communitySkills || 0})`);
+      console.log(`  - MCP Config: ${data.kiro.mcpJson ? 'yes' : 'no'}`);
+    }
+    if (data.claude) {
+      console.log('\nClaude Code:');
+      console.log(`  - Subagents: ${data.claude.agents || 0}`);
+      console.log(`  - Skills: ${data.claude.skills || 0} (agent workflows: ${data.claude.agentWorkflows || 0}, delivery workflows: ${data.claude.deliveryWorkflows || 0})`);
+      console.log(`  - CLAUDE.md: ${data.claude.claudeMd ? 'yes' : 'no'}`);
+      console.log(`  - Project settings: ${data.claude.settings ? 'yes' : 'no'}`);
+      console.log(`  - MCP Config: ${data.claude.mcpJson ? 'yes' : 'no'}`);
+    }
     if (data.agents?.length) {
-      console.log('\\nAgents:');
+      console.log('\nAgents:');
       console.log('  ' + data.agents.join(', '));
     }
   } catch (e) {
@@ -2370,25 +4525,45 @@ else if (cmd === 'install') {
   const addMcpJsonFlag = flags.has('--with-mcp');
   const addMcpSettingsFlag = flags.has('--with-mcp-settings');
   const addJavaInstructionsFlag = flags.has('--with-java-instructions');
+  const addCommunitySkillsFlag = flags.has('--with-community-skills');
   const forAntigravityFlag = flags.has('--for-antigravity');
+  const forKiroFlag = flags.has('--for-kiro');
   const forCopilotFlag = flags.has('--for-copilot');
+  const forClaudeFlag = flags.has('--for-claude');
   // If flags explicitly provided, skip prompts and just do what flags request
-  if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag || forAntigravityFlag || forCopilotFlag) {
+  if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag || addCommunitySkillsFlag || forAntigravityFlag || forKiroFlag || forCopilotFlag || forClaudeFlag) {
     printInstallBanner({ showGMSignature: true });
     const dest = process.cwd();
-    const doCopilot = forCopilotFlag || !forAntigravityFlag; // default to copilot unless only antigravity is requested
-    if (doCopilot) {
+    // Explicit platform flags win; otherwise target the IDEs this project already uses
+    const target = resolvePlatforms(dest, { copilot: forCopilotFlag, antigravity: forAntigravityFlag, kiro: forKiroFlag, claude: forClaudeFlag });
+    if (target.detected) {
+      console.log(`Detected target platform(s): ${describePlatforms(target)}`);
+    }
+    if (target.copilot) {
       installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag });
     }
-    if (forAntigravityFlag) {
+    if (target.antigravity) {
       installAntigravity(dest);
+    }
+    if (target.kiro) {
+      installKiro(dest);
+      if (addCommunitySkillsFlag) await addCommunitySkills([], { dest });
+    } else if (addCommunitySkillsFlag) {
+      console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
+    }
+    if (target.claude) {
+      installClaudeCode(dest);
     }
     maybeAddConsumerScripts(dest);
     if (flags.has('--prune-legacy')) pruneLegacy(dest);
     if (addMcpSettingsFlag) writeMockMcp(dest);
-    if (addMcpJsonFlag) writeMcpJson(dest);
-    if (doCopilot) writeVscodeSettings(dest);
-    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: forAntigravityFlag });
+    if (addMcpJsonFlag) {
+      if (target.copilot || target.antigravity) writeMcpJson(dest);
+      if (target.kiro) writeKiroMcpJson(dest);
+      if (target.claude) writeClaudeMcpJson(dest);
+    }
+    if (target.copilot) writeVscodeSettings(dest);
+    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
   } else {
     await installInteractive({ autoYes });
   }
@@ -2398,6 +4573,29 @@ else if (cmd === 'status') {
 }
 else if (cmd === 'list:agents') {
   listAgentsCommand(process.cwd());
+}
+else if (cmd === 'skills:list' || cmd === 'list:skills') {
+  skillsListCommand();
+}
+else if (cmd === 'skills:add') {
+  const { flags: skillFlags, args: skillArgs } = parseFlags(process.argv.slice(3));
+  const ids = [...skillArgs];
+  if (skillFlags.has('--all')) ids.push('--all');
+  const result = await addCommunitySkills(ids, {
+    dest: process.cwd(),
+    globalScope: skillFlags.has('--global'),
+  });
+  if (result.added.length) {
+    console.log(`\n✅ Added ${result.added.length} skill(s). Kiro picks them up on save; check the Agent Steering & Skills panel.`);
+  }
+  if (result.failed.length) {
+    console.log(`⚠️ ${result.failed.length} skill(s) failed. Re-run, or set GITHUB_TOKEN if you hit API rate limits.`);
+    process.exitCode = 1;
+  }
+  if (!result.added.length && !result.failed.length) {
+    console.log('Nothing added. Run `aigile skills:list` to see available skill ids.');
+    process.exitCode = 1;
+  }
 }
 else if (cmd === 'auth') {
   // For public npm, auth is handled via `npm login` or NPM_TOKEN environment variable
@@ -2422,16 +4620,34 @@ else if (cmd === 'init' || !cmd) {
   const addMcpJson = passThrough.has('--with-mcp');
   const addMcpSettings = passThrough.has('--with-mcp-settings');
   const addJavaInstructions = passThrough.has('--with-java-instructions');
-  const forAntigravity = passThrough.has('--for-antigravity');
-  const forCopilot = passThrough.has('--for-copilot') || !forAntigravity;
-  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
-  if (forAntigravity) installAntigravity(dest);
+  const target = resolvePlatforms(dest, {
+    copilot: passThrough.has('--for-copilot'),
+    antigravity: passThrough.has('--for-antigravity'),
+    kiro: passThrough.has('--for-kiro'),
+    claude: passThrough.has('--for-claude'),
+  });
+  if (target.detected) {
+    console.log(`Detected target platform(s): ${describePlatforms(target)}`);
+  }
+  if (target.copilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (target.antigravity) installAntigravity(dest);
+  if (target.kiro) {
+    installKiro(dest);
+    if (passThrough.has('--with-community-skills')) await addCommunitySkills([], { dest });
+  } else if (passThrough.has('--with-community-skills')) {
+    console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
+  }
+  if (target.claude) installClaudeCode(dest);
   maybeAddConsumerScripts(dest);
   if (passThrough.has('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
-  if (forCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
+  if (addMcpJson) {
+    if (target.copilot || target.antigravity) writeMcpJson(dest);
+    if (target.kiro) writeKiroMcpJson(dest);
+    if (target.claude) writeClaudeMcpJson(dest);
+  }
+  if (target.copilot) writeVscodeSettings(dest);
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
   console.log('✅ Init complete');
 }
 else if (cmd === 'auth-install') {
@@ -2443,41 +4659,74 @@ else if (cmd === 'auth-install') {
   const addMcpJson = argvRest.includes('--with-mcp');
   const addMcpSettings = argvRest.includes('--with-mcp-settings');
   const addJavaInstructions = argvRest.includes('--with-java-instructions');
-  const forAntigravity = argvRest.includes('--for-antigravity');
-  const forCopilot = argvRest.includes('--for-copilot') || !forAntigravity;
-  if (forCopilot) installGithubCopilot(dest, { addJavaInstructions });
-  if (forAntigravity) installAntigravity(dest);
+  const target = resolvePlatforms(dest, {
+    copilot: argvRest.includes('--for-copilot'),
+    antigravity: argvRest.includes('--for-antigravity'),
+    kiro: argvRest.includes('--for-kiro'),
+    claude: argvRest.includes('--for-claude'),
+  });
+  if (target.copilot) installGithubCopilot(dest, { addJavaInstructions });
+  if (target.antigravity) installAntigravity(dest);
+  if (target.kiro) {
+    installKiro(dest);
+    if (argvRest.includes('--with-community-skills')) await addCommunitySkills([], { dest });
+  } else if (argvRest.includes('--with-community-skills')) {
+    console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
+  }
+  if (target.claude) installClaudeCode(dest);
   maybeAddConsumerScripts(dest);
   if (argvRest.includes('--prune-legacy')) pruneLegacy(dest);
   if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) writeMcpJson(dest);
-  if (forCopilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity });
+  if (addMcpJson) {
+    if (target.copilot || target.antigravity) writeMcpJson(dest);
+    if (target.kiro) writeKiroMcpJson(dest);
+    if (target.claude) writeClaudeMcpJson(dest);
+  }
+  if (target.copilot) writeVscodeSettings(dest);
+  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
   console.log('✅ Install complete');
 }
 else {
-  console.log('Usage: aigile <command> [flags]\\n');
+  console.log('Usage: aigile <command> [flags]\n');
   console.log('Commands:');
   console.log('  init                Install .aigile-core and custom agents (default)');
   console.log('  install             Install/update .aigile-core and custom agents');
-  console.log('  bundle              Build dist/ text bundles');
+  console.log('                      Target IDEs are auto-detected (.kiro/, .github/, .agent/, .claude/, or the running IDE)');
+  console.log('                      unless you pass explicit --for-* flags');
+  console.log('  bundle              Build dist/ text bundles and the Claude Code plugin (plugin/)');
   console.log('  status              Show installation manifest summary');
   console.log('  list:agents         List installed agent IDs');
-  console.log('\\nHelpful flags:');
-  console.log('  --with-mcp          Include .vscode/mcp.json');
+  console.log('  skills:list         List AIgile skills and the curated community skill registry');
+  console.log('  skills:add [ids]    Fetch community skills into .kiro/skills (no ids = recommended)');
+  console.log('\nHelpful flags:');
+  console.log('  --with-mcp          Include MCP config (.vscode/mcp.json, .kiro/settings/mcp.json, .mcp.json)');
   console.log('  --with-mcp-settings Include mock .vscode/settings.json MCP endpoints');
   console.log('  --with-java-instructions  Copy Java instructions into .github/instructions');
   console.log('  --for-copilot       Install for GitHub Copilot (.github/agents/)');
   console.log('  --for-antigravity   Install for Google Antigravity (.agent/ + GEMINI.md)');
+  console.log('  --for-kiro          Install for Kiro (.kiro/agents/ + .kiro/steering/ + .kiro/skills/)');
+  console.log('  --for-claude        Install for Claude Code (.claude/agents/ + .claude/skills/ + CLAUDE.md)');
+  console.log('  --with-community-skills  Also fetch recommended community skills (Kiro, needs network)');
   console.log('  --prune-legacy      Remove legacy artifacts (old .aigile, docs skeleton, chatmodes)');
   console.log('  --use-legacy-format Use deprecated .chatmode.md format instead of .agent.md');
   console.log('  --yes               Skip interactive component selection for install');
-  console.log('\\nExamples:');
+  console.log('\nExamples:');
   console.log('  npx @mark-gozner/aigile-method                         # installs agents and core (Copilot)');
   console.log('  npx @mark-gozner/aigile-method install --for-antigravity --yes  # Antigravity only');
-  console.log('  npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --yes  # both platforms');
+  console.log('  npx @mark-gozner/aigile-method install --for-kiro --yes         # Kiro only');
+  console.log('  npx @mark-gozner/aigile-method install --for-claude --yes       # Claude Code only');
+  console.log('  npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --for-kiro --for-claude --yes  # all platforms');
   console.log('  npx @mark-gozner/aigile-method init --with-mcp');
-  console.log('\\nFeatures:');
+  console.log('\nFeatures:');
   console.log('  - GitHub Copilot: Custom agents (.agent.md), handoffs, runSubagent');
   console.log('  - Google Antigravity: Agent rules, workflows, GEMINI.md');
+  console.log('  - Kiro: Custom agents, steering files, slash-command workflows, Agent Skills, MCP config');
+  console.log('  - Claude Code: Subagents, skill workflows, delivery workflows, CLAUDE.md, MCP config');
+  console.log('\nClaude Code plugin (no npm install needed):');
+  console.log('  /plugin marketplace add Gmark2000/AIgile-Method');
+  console.log('  /plugin install aigile@aigile-method');
+  console.log('\nSkills examples:');
+  console.log('  npx @mark-gozner/aigile-method skills:list');
+  console.log('  npx @mark-gozner/aigile-method skills:add caveman grill-me');
+  console.log('  npx @mark-gozner/aigile-method skills:add --all --global');
 }

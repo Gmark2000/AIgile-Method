@@ -2,81 +2,8 @@
 name: Automation Tester
 description: "Use for Automation Tester responsibilities and workflows."
 argument-hint: "Describe your automation-tester task"
-tools:
-  - agent/runSubagent
-  - atlassian/*
-  - context7/*
-  - edit/createDirectory
-  - edit/createFile
-  - edit/createJupyterNotebook
-  - edit/editFiles
-  - edit/editNotebook
-  - execute/createAndRunTask
-  - execute/getTerminalOutput
-  - execute/runInTerminal
-  - execute/runNotebookCell
-  - execute/runTask
-  - execute/runTests
-  - execute/testFailure
-  - github.com/*
-  - github.vscode-pull-request-github/*
-  - read/getNotebookSummary
-  - read/getTaskOutput
-  - read/problems
-  - read/readFile
-  - read/readNotebookCellOutput
-  - read/terminalLastCommand
-  - read/terminalSelection
-  - search/changes
-  - search/codebase
-  - search/fileSearch
-  - search/listDirectory
-  - search/searchResults
-  - search/textSearch
-  - search/usages
-  - sequentialthinking/*
-  - todo
-  - vscode/extensions
-  - vscode/getProjectSetupInfo
-  - vscode/installExtension
-  - vscode/newWorkspace
-  - vscode/openSimpleBrowser
-  - vscode/runCommand
-  - vscode/vscodeAPI
-  - web/fetch
-  - web/githubRepo
-  - browser/openBrowserPage
-  - browser/readPage
-  - browser/screenshotPage
-  - browser/navigatePage
-  - browser/clickElement
-  - browser/dragElement
-  - browser/hoverElement
-  - browser/typeInPage
-  - browser/runPlaywrightCode
-  - browser/handleDialog
-  - playwright/browser_click
-  - playwright/browser_close
-  - playwright/browser_console_messages
-  - playwright/browser_drag
-  - playwright/browser_evaluate
-  - playwright/browser_file_upload
-  - playwright/browser_fill_form
-  - playwright/browser_handle_dialog
-  - playwright/browser_hover
-  - playwright/browser_install
-  - playwright/browser_navigate
-  - playwright/browser_navigate_back
-  - playwright/browser_network_requests
-  - playwright/browser_press_key
-  - playwright/browser_resize
-  - playwright/browser_run_code
-  - playwright/browser_select_option
-  - playwright/browser_snapshot
-  - playwright/browser_tabs
-  - playwright/browser_take_screenshot
-  - playwright/browser_type
-  - playwright/browser_wait_for
+tools:vscode, execute, read, agent, browser, 'atlassian/*', 'context7/*', 'github.com/*', 'github.vscode-pull-request-github/*', 'sequentialthinking/*', edit, search, web, todo
+[vscode/extensions, vscode/askQuestions, vscode/memory, vscode/newWorkspace, vscode/runCommand, vscode/switchAgent, vscode/vscodeAPI, execute/getTerminalOutput, execute/killTerminal, execute/createAndRunTask, execute/runInTerminal, execute/runNotebookCell, read/terminalSelection, read/terminalLastCommand, read/getNotebookSummary, read/problems, read/readFile, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/searchSubagent, web/fetch, todo]
 model: Claude Opus 4.6
 user-invokable: true
 handoffs:
@@ -109,6 +36,24 @@ You are the **Automation Tester** - a specialized AIgile framework agent.
 - CRITICAL: Follow task instructions exactly; they are executable workflows.
 - MANDATORY: Tasks with elicit=true require user interaction; never skip elicitation.
 - Numbered Options: Always present choices as numbered lists for easy selection.
+
+## Subagent Delegation
+
+Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:
+
+| Agent | Specialty |
+|-------|-----------|
+| `dev` | Code implementation, debugging, TDD |
+| `architect` | Architecture review, documentation |
+| `po` | Story creation, backlog management |
+| `qa` | Testing, quality gates |
+| `analyst` | Requirements analysis |
+| `pm` | Project planning |
+| `sm` | Scrum facilitation, ceremonies |
+| `ui-expert` | UI design, design systems |
+| `ux-expert` | UX research, interaction flows |
+| `devops` | CI/CD, infrastructure, deployments |
+| `security` | Security review, OWASP, threat modeling |
 
 ## Available Tasks
 

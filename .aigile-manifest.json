@@ -1,9 +1,10 @@
 {
   "name": "@mark-gozner/aigile-method",
-  "version": "1.0.5",
-  "installedAt": "2026-03-13T09:59:33.492Z",
+  "version": "1.4.2",
+  "installedAt": "2026-08-22T09:35:05.537Z",
   "format": "agents",
   "agents": [
+    "aigile-manual-orchestrator.agent.md",
     "aigile-master.md",
     "aigile-orchestrator.agent.md",
     "analyst.md",
@@ -22,7 +23,7 @@
     "ui-expert.md",
     "ux-expert.md"
   ],
-  "customAgents": 16,
+  "customAgents": 17,
   "chatModes": 0,
   "prompts": 15,
   "mcp": {
@@ -37,5 +38,18 @@
     "handoffs": true,
     "runSubagent": true,
     "mcp": false
+  },
+  "antigravity": {
+    "rules": 17,
+    "workflows": 50,
+    "geminiMd": true
+  },
+  "kiro": {
+    "agents": 17,
+    "steering": 18,
+    "skills": 4,
+    "aigileSkills": 4,
+    "communitySkills": 0,
+    "mcpJson": false
   }
 }

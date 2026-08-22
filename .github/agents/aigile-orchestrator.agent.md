@@ -2,10 +2,8 @@
 name: AIgile Orchestrator
 description: "Strict delegation-only coordinator — never executes, always delegates to specialist agents"
 argument-hint: "Describe your goal and I will coordinate specialist agents to deliver it"
-tools:
-  - agent
-  - todo
-  - askQuestions
+tools:vscode, agent, todo
+[vscode/extensions, vscode/askQuestions, vscode/memory, vscode/newWorkspace, vscode/runCommand, vscode/switchAgent, vscode/vscodeAPI, agent/runSubagent, todo]
 user-invocable: true
 agents:
   - Business Analyst

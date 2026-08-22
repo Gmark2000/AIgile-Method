@@ -13,6 +13,50 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ### Removed
 
+## [1.4.2] - 2026-07-28
+### Fixed
+- **Orchestrators can always delegate.** Kiro requires the `subagent` tool for a custom agent to spawn subagents, but that tag postdates some Kiro builds, and where it is unrecognized it is silently dropped — leaving an orchestrator with `read` only and no way to delegate. Both orchestrators now declare `tools: ["@builtin", "subagent"]`, so the subagent tool is present on every build, and all specialist agents carry `@builtin` alongside their category tags for the same reason. Delegation-only discipline moves from the tool list to the agent prompt (`@builtin` also grants edit and shell tools, which the orchestrators are explicitly told never to use), and Kiro still prompts before any write or shell call.
+- **Explicit delegation mechanics for the Kiro orchestrators.** Both orchestrator agents already declared the `subagent` tool (the tag Kiro requires for a custom agent to delegate), but nothing told them how to use it or what to do when it is unavailable. Their generated agent files now state that delegation is their primary capability, how to write a self-contained brief for a subagent's isolated context, that up to four subagents run in parallel, and that if they were themselves launched as a subagent — where nested delegation is not available — they must hand back numbered briefs instead of doing the work. The `aigile-orchestration` skill and the always-on steering file carry the same guidance, including the recommendation to run orchestrators as the main agent from the agent selector.
+
+### Upgrading
+Re-run the installer to regenerate the agents: `npx @mark-gozner/aigile-method@latest install --for-kiro --yes`, then start a new Kiro session (workspace agents load at session start) and select an orchestrator as the main agent when you want it to coordinate the team.
+
+## [1.4.1] - 2026-07-28
+### Fixed
+- **Kiro agents no longer reference VS Code / Copilot tooling.** The source agents were authored for GitHub Copilot, and their embedded definition told Kiro agents to call tools that do not exist there (`vscode_askQuestions`, `runSubagent`, Copilot Chat TODOs, `.github/agents`, chatmodes), so agents announced missing tools instead of acting. Generated Kiro agents now:
+  - carry an authoritative **Environment: Kiro** section mapping each need to its Kiro capability (ask in chat, subagent delegation, steering, skills, specs, hooks, MCP) and declaring the appendix's tool names historical;
+  - translate the embedded definition on generation (`vscode_askQuestions` → the confirmation question in chat, `runSubagent` → subagent delegation, Copilot Chat TODOs → a task checklist, `.github/agents` → `.kiro/agents`, chatmode → custom agent, VS Code → Kiro);
+  - strip the Copilot `tools:`/`handoffs:`/`agents:` frontmatter from native `.agent.md` sources, since the generated Kiro frontmatter is authoritative.
+- **Real titles and descriptions for native `.agent.md` agents.** Their identity lives in YAML frontmatter rather than a fenced YAML block, so both orchestrators previously fell back to generic text like "Use for Aigile Manual Orchestrator responsibilities and workflows." Descriptions now come from the source and are Kiro-translated, which also improves Kiro's automatic subagent selection. Titles are translated too (for example "VSCode Tour Expert" → "Kiro Tour Expert").
+
+### Upgrading
+Re-run the installer to regenerate the agents: `npx @mark-gozner/aigile-method@latest install --for-kiro --yes`, then start a new Kiro session (workspace agents load at session start).
+
+## [1.4.0] - 2026-07-27
+### Added
+- **Kiro support (`--for-kiro`)** — the installer now generates a complete, out-of-the-box AIgile agent team for [Kiro](https://kiro.dev):
+  - `.kiro/agents/<agent>.md` — one Kiro custom agent per role (markdown + YAML frontmatter with `name`, `description`, `tools`, `includeMcpJson`), so the whole team appears in Kiro's agent selector and can be used for subagent delegation. Tool access is declared with Kiro tool categories (`read`, `write`, `shell`, `web`, `context`, `subagent`, `spec`); orchestrators are limited to `read`, `context`, `subagent`.
+  - `.kiro/steering/aigile-method.md` — always-included steering file describing the framework, agent team, and core assets (the Kiro counterpart to `GEMINI.md`).
+  - `.kiro/steering/aigile-<agent>-workflows.md` — manual-inclusion steering files, one per agent, exposing each agent's commands as slash commands (e.g. `/aigile-dev-workflows`).
+  - `.kiro/settings/mcp.json` — Kiro-format MCP config generated from `mcp/servers.json` when combined with `--with-mcp` (VS Code `${input:x}` placeholders are converted to `${X}` environment references).
+- **AIgile Agent Skills for Kiro** — four skills following the open [Agent Skills](https://agentskills.io/) standard are installed into `.kiro/skills/` by `--for-kiro`, and each generated Kiro agent lists the skills relevant to its role:
+  - `aigile-orchestration` — routing matrix across the whole agent team, delegation protocol (restate goal, name artifact, pass context, state DoD, verify on return), parallel vs sequential rules, and escalation triggers.
+  - `aigile-story-delivery` — readiness checks, task breakdown, implementation loop, definition of done, QA handoff.
+  - `aigile-quality-gate` — evidence checklist, risk scoring, and PASS / CONCERNS / FAIL / WAIVED decision format.
+  - `aigile-spec-bridge` — maps Kiro spec phases (`requirements.md`, `design.md`, `tasks.md`) onto AIgile roles and artifacts.
+- **Curated community skill registry** (`core/skills-registry.json`) with new commands `aigile skills:list` and `aigile skills:add [ids] [--all] [--global]`. Third-party skills are **not** bundled: each is fetched from its source GitHub repository on request (GitHub trees API + raw download, `GITHUB_TOKEN` honored for rate limits) and gets an `ATTRIBUTION.md` recording source, author, license, and retrieval date. Downloads are guarded against path traversal, oversized files, and oversized skills. Registry covers caveman, grill-me, junior-to-senior, loop-factory, context-canary, interface-kit (MIT, Julius Brussee) and webapp-testing, mcp-builder, skill-creator, frontend-design (Anthropic).
+- **`--with-community-skills`** flag plus an interactive component option (shown only when Kiro is a selected target) to fetch the recommended community skills during install.
+- **Kiro option in the interactive installer** — platform selector now offers GitHub Copilot, Google Antigravity, and Kiro in any combination.
+- **Kiro section in `aigile status`** and a `kiro` block in `.aigile-manifest.json` (agents, steering files, skills split into AIgile vs community, MCP config presence). Antigravity output is now reported by `status` as well.
+
+### Changed
+- **Platform auto-detection** — `install`, `install --yes`, and `init` now detect target IDEs from the workspace (`.kiro/`, `.github/`, `.agent/`/`GEMINI.md`) and from being run inside Kiro (`TERM_PROGRAM`/`KIRO_HOME`), instead of always defaulting to Copilot. Explicit `--for-*` flags still win, and projects with no markers still default to Copilot, so existing setups are unaffected. Interactive mode pre-selects the detected platforms.
+- MCP config target is now platform-aware: Copilot/Antigravity get `.vscode/mcp.json`, Kiro gets `.kiro/settings/mcp.json`. The interactive component list reflects the actual target paths and hides VS Code-only extras (mock MCP settings, Java instructions) when Copilot is not a selected platform.
+- The `dist/` team bundle now includes the `skills` bucket.
+- **Packaging** — the published tarball no longer ships the dead `tools/installer/` modules (`!tools/installer/**`) and now includes `CHANGELOG.md`. `tools/installer/README.md` is marked as superseded by `tools/cli.js`.
+- **`.gitignore`** — ignores installer output generated while dogfooding (`.kiro/`, `.agent/`, `GEMINI.md`), npm packaging artifacts (`*.tgz`), and local scratch dirs (`.tmp-*/`).
+- README documents all three platforms, their generated layouts, and per-IDE usage.
+
 ## [1.3.0] - 2026-04-22
 ### Added
 - **AIgile Manual Orchestrator agent** — new human-in-the-loop variant of the orchestrator that confirms every delegation via `vscode_askQuestions` before invoking `runSubagent`. Includes hard-stop pre-delegation block, self-check protocol, canonical question template, and explicit anti-patterns list to prevent silent auto-delegation.
