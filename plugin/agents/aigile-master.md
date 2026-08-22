@@ -28,7 +28,7 @@ equivalent below and carry on.
 | Need | Use in Claude Code |
 |------|--------------------|
 | Ask the user to confirm or choose | The `AskUserQuestion` tool |
-| Delegate to another role | The `Task` tool with the matching `subagent_type` |
+| Delegate to another role | The `Agent` tool with the matching `subagent_type` |
 | Track progress on a long task | The `TodoWrite` tool |
 | Persistent project context | `CLAUDE.md` at the project root |
 | Reusable procedures | Agent Skills, invoked from chat with `/` |
@@ -54,7 +54,7 @@ they describe other IDEs. This section wins on any conflict.
 
 ## Delegation
 
-Delegate specialized work with the `Task` tool, passing the specialist as `subagent_type`
+Delegate specialized work with the `Agent` tool, passing the specialist as `subagent_type`
 (for example `subagent_type: "qa"` to design tests for a story):
 
 | `subagent_type` | Specialty |

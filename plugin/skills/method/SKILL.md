@@ -10,7 +10,8 @@ sequences that run them in the right order.
 
 ## Agents
 
-Delegate with the `Task` tool, passing the id as `subagent_type`.
+Delegate with the `Agent` tool, passing the id as `subagent_type`, or address one directly
+with `@agent-<id>`.
 
 | Agent | Role | When to use |
 |-------|------|-------------|

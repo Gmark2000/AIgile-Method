@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: Route a request to the right AIgile specialist agent and coordinate multi-agent delivery in Claude Code. Use when a request spans several roles, when you are unsure which agent should act, when planning a story end-to-end, or when acting as the AIgile orchestrator delegating with the Task tool.
+description: Route a request to the right AIgile specialist agent and coordinate multi-agent delivery in Claude Code. Use when a request spans several roles, when you are unsure which agent should act, when planning a story end-to-end, or when acting as the AIgile orchestrator delegating with the Agent tool.
 license: SEE LICENSE IN LICENSE
 metadata:
   author: Mark Gozner
@@ -42,11 +42,12 @@ consumes it. A story is `po` even if `dev` will implement it.
 3. **Pass context explicitly** — the subagent has its own context window and cannot see this
    conversation. Include: story/ticket ID, relevant file paths, constraints, prior decisions.
 4. **State the definition of done** for that delegation.
-5. **Delegate** — call the `Task` tool with the AIgile agent as `subagent_type` (for example
+5. **Delegate** — call the `Agent` tool with the AIgile agent as `subagent_type` (for example
    `subagent_type: "qa"` to design test cases for STORY-142). Send independent briefs in a
-   single message so they run concurrently; sequence dependent ones. Claude Code does not nest
-   delegation, so a subagent cannot spawn further subagents — if you are running as a subagent
-   yourself, hand back the numbered briefs rather than doing the work.
+   single message so they run concurrently; sequence dependent ones. Subagents nest up to three
+   layers below the main conversation, so this works whether you are the main session or were
+   spawned as a subagent yourself. If a delegation is refused because that depth is exhausted,
+   hand back the numbered briefs rather than quietly doing the work.
 6. **Verify on return** — check the artifact exists and satisfies the stated done criteria
    before moving on. Do not accept a summary in place of the artifact.
 
@@ -75,6 +76,20 @@ Ask with the `AskUserQuestion` tool (do not guess) when:
 - Two specialists give conflicting recommendations.
 - A required input is missing (ticket ID, target environment, acceptance criteria).
 - The next step is destructive or affects shared/production systems.
+
+## Running as the coordinator
+
+Start a session as an orchestrator when you want to talk to it directly for the whole
+conversation:
+
+```bash
+claude --agent aigile-orchestrator          # coordinates autonomously
+claude --agent aigile-manual-orchestrator   # asks before every delegation
+```
+
+Or pin it for the project with `"agent": "aigile-orchestrator"` in `.claude/settings.json`.
+Addressing a specialist directly is `@agent-dev`, which guarantees that agent runs instead of
+leaving the choice to description matching.
 
 ## Resources
 

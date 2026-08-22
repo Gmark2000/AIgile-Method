@@ -95,10 +95,10 @@ Optional convenience:
 Every supported platform gets the full AIgile agent team out of the box, generated from the same source definitions in `core/agents/`.
 
 **Claude Code** (`.claude/agents/`, `.claude/skills/`, `CLAUDE.md`)
-- One [subagent](https://code.claude.com/docs/en/sub-agents) per role, delegated to with the `Task` tool (`subagent_type: "qa"`)
-- Specialists inherit the full session toolset, including whatever MCP servers you have configured — only the two orchestrators are restricted, to `Read, Glob, Grep, Task, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so "delegation-only" is enforced by the toolset and not just by the prompt
+- One [subagent](https://code.claude.com/docs/en/sub-agents) per role, delegated to with the `Agent` tool (`subagent_type: "qa"`) or addressed directly as `@agent-qa`
+- Specialists inherit the full session toolset, including whatever MCP servers you have configured — only the two orchestrators are restricted, to `Read, Glob, Grep, Agent, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so "delegation-only" is enforced by the toolset and not just by the prompt
 - Role-relevant AIgile skills are preloaded per agent via the `skills:` frontmatter field
-- Copilot/VS Code tool names in the source definitions are translated to their Claude Code equivalents (`runSubagent` → `Task`, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`)
+- Copilot/VS Code tool names in the source definitions are translated to their Claude Code equivalents (`runSubagent` → `Agent`, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`)
 - `CLAUDE.md` gets an AIgile section between `<!-- AIGILE:START -->` / `<!-- AIGILE:END -->` markers, so re-running the installer never disturbs anything you wrote around it
 - `.claude/settings.json` is merged, not overwritten — the installer only adds read permissions for `.aigile-core/`
 - `.mcp.json` when combined with `--with-mcp`
@@ -170,9 +170,15 @@ The registry currently covers [caveman](https://github.com/JuliusBrussee/caveman
 
 **Claude Code**
 1) Run `/aigile` for routing help, or ask directly ("use the po subagent to draft stories for FEAT-12")
-2) Type `/aigile-` to browse the workflows, e.g. `/aigile-dev-develop-story STORY-142`
-3) Start `aigile-orchestrator` or `aigile-manual-orchestrator` from the **main** session when you want it to coordinate the team — Claude Code does not nest delegation, so an orchestrator launched as a subagent can only hand briefs back
-4) Run `/agents` to inspect or tweak the installed team
+2) Pin a specific specialist with `@agent-dev`, `@agent-qa`, … when you do not want Claude choosing for you
+3) Type `/aigile-` to browse the workflows, e.g. `/aigile-dev-develop-story STORY-142`
+4) Hand a whole piece of work to a coordinator by starting the session as one:
+   ```bash
+   claude --agent aigile-orchestrator          # coordinates autonomously
+   claude --agent aigile-manual-orchestrator   # asks before every delegation
+   ```
+   Or pin it for the project with `"agent": "aigile-orchestrator"` in `.claude/settings.json`. Spawning an orchestrator as a subagent also works — subagents nest up to three layers below the main conversation — but you only see its final summary
+5) Run `/agents` to inspect or tweak the installed team
 
 **GitHub Copilot**
 1) Pick an agent for a role (e.g., PO, PM, Architect) from the Agents dropdown in Copilot Chat

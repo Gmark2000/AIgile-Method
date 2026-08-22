@@ -12,7 +12,7 @@
 
 ## What you get
 
-- **17 specialist subagents** — delegate with the `Task` tool, e.g. `subagent_type: "po"`.
+- **17 specialist subagents** — delegate with the `Agent` tool (`subagent_type: "po"`) or address one with `@agent-po`.
 - **33 per-role workflows** — `/aigile:dev-develop-story`, `/aigile:qa-quality-gate`, ...
 - **6 delivery workflows** — `/aigile:workflow-greenfield-fullstack` and friends.
 - **4 AIgile skills** that activate automatically when a request matches.

@@ -13,7 +13,7 @@ AIgile workflow owned by the **UX Expert** (`ux-expert`) agent.
 
 ## Before you start
 
-1. Adopt the `ux-expert` persona — read `.claude/agents/ux-expert.md` if you are not already that agent, or delegate this whole workflow with the `Task` tool using `subagent_type: "ux-expert"`.
+1. Adopt the `ux-expert` persona — read `.claude/agents/ux-expert.md` if you are not already that agent, or delegate this whole workflow with the `Agent` tool using `subagent_type: "ux-expert"`, or address it directly with `@agent-ux-expert`.
 2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.
 3. Track multi-step progress with `TodoWrite`.
 

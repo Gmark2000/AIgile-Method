@@ -13,7 +13,7 @@ AIgile workflow owned by the **Full Stack Developer** (`dev`) agent.
 
 ## Before you start
 
-1. Adopt the `dev` persona — read `.claude/agents/dev.md` if you are not already that agent, or delegate this whole workflow with the `Task` tool using `subagent_type: "dev"`.
+1. Adopt the `dev` persona — read `.claude/agents/dev.md` if you are not already that agent, or delegate this whole workflow with the `Agent` tool using `subagent_type: "dev"`, or address it directly with `@agent-dev`.
 2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.
 3. Track multi-step progress with `TodoWrite`.
 

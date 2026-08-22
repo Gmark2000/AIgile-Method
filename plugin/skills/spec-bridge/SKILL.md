@@ -27,7 +27,7 @@ design gets argued out; the documents are what survives the session.
 | Task execution | `dev` | Implementation plus tests |
 | Post-execution | `qa` | Quality gate decision |
 
-Delegate each phase with the `Task` tool using that owner as `subagent_type`, and mirror the
+Delegate each phase with the `Agent` tool using that owner as `subagent_type`, and mirror the
 task list into `TodoWrite` so progress is visible while the phase runs.
 
 ## Writing requirements

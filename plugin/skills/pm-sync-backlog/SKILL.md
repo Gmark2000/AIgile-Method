@@ -13,7 +13,7 @@ AIgile workflow owned by the **Product Manager** (`pm`) agent.
 
 ## Before you start
 
-1. Adopt the `pm` persona — read `.claude/agents/pm.md` if you are not already that agent, or delegate this whole workflow with the `Task` tool using `subagent_type: "pm"`.
+1. Adopt the `pm` persona — read `.claude/agents/pm.md` if you are not already that agent, or delegate this whole workflow with the `Agent` tool using `subagent_type: "pm"`, or address it directly with `@agent-pm`.
 2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.
 3. Track multi-step progress with `TodoWrite`.
 

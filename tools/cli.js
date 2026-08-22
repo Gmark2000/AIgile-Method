@@ -2661,7 +2661,7 @@ function claudeTarget(kind = 'project') {
  */
 function claudeToolsFor(agentId) {
   if (claudeIsOrchestrator(agentId)) {
-    return ['Read', 'Glob', 'Grep', 'Task', 'TodoWrite', 'AskUserQuestion', 'WebFetch', 'WebSearch'];
+    return ['Read', 'Glob', 'Grep', 'Agent', 'TodoWrite', 'AskUserQuestion', 'WebFetch', 'WebSearch'];
   }
   return null;
 }
@@ -2716,9 +2716,9 @@ function claudeifyText(text, { keepEditorNames = false } = {}) {
     [/GitHub Copilot Chat TODOs/g, 'the `TodoWrite` tool'],
     [/Copilot Chat TODOs/g, 'the `TodoWrite` tool'],
     // Delegation: Claude Code spawns subagents with the Task tool.
-    [/#tool:runSubagent/g, 'the `Task` tool'],
-    [/#runSubagent/g, 'the `Task` tool'],
-    [/`?\brunSubagent\b`?/g, 'the `Task` tool'],
+    [/#tool:runSubagent/g, 'the `Agent` tool'],
+    [/#runSubagent/g, 'the `Agent` tool'],
+    [/`?\brunSubagent\b`?/g, 'the `Agent` tool'],
     // Paths and file formats.
     [/\.github\/chatmodes/g, '.claude/agents'],
     [/\.github\/agents/g, '.claude/agents'],
@@ -2910,7 +2910,7 @@ function generateClaudeAgent({ agentId, agentMeta, agentMd, tasks, target }) {
   body.push('| Need | Use in Claude Code |');
   body.push('|------|--------------------|');
   body.push('| Ask the user to confirm or choose | The `AskUserQuestion` tool |');
-  body.push('| Delegate to another role | The `Task` tool with the matching `subagent_type` |');
+  body.push('| Delegate to another role | The `Agent` tool with the matching `subagent_type` |');
   body.push('| Track progress on a long task | The `TodoWrite` tool |');
   body.push('| Persistent project context | `CLAUDE.md` at the project root |');
   body.push('| Reusable procedures | Agent Skills, invoked from chat with `/` |');
@@ -2954,15 +2954,15 @@ function generateClaudeAgent({ agentId, agentMeta, agentMd, tasks, target }) {
   body.push('## Delegation');
   body.push('');
   if (isOrchestrator) {
-    body.push('Delegation is your primary capability. You hold `Task` and no editing or shell tools —');
+    body.push('Delegation is your primary capability. You hold `Agent` and no editing or shell tools —');
     body.push('that is by design. Read to understand, then delegate the work.');
     body.push('');
     if (agentId === 'aigile-manual-orchestrator') {
-      body.push('- **Gate first.** Never call `Task` until the user has answered your `AskUserQuestion`');
+      body.push('- **Gate first.** Never call `Agent` until the user has answered your `AskUserQuestion`');
       body.push('  confirmation for that specific delegation. Holding the tool does not license you to');
       body.push('  use it unprompted — ask, wait, then dispatch exactly what was approved.');
     }
-    body.push('- Spawn an AIgile specialist with `Task` and its `subagent_type` (for example');
+    body.push('- Spawn an AIgile specialist with `Agent` and its `subagent_type` (for example');
     body.push('  `subagent_type: "qa"`), and give it a self-contained brief: goal, target artifact,');
     body.push('  file paths, constraints and definition of done. The subagent has its own context');
     body.push('  window and cannot see this conversation.');
@@ -2970,15 +2970,16 @@ function generateClaudeAgent({ agentId, agentMeta, agentMd, tasks, target }) {
     body.push('  dependent ones.');
     body.push('- Verify each returned artifact against the stated done criteria before continuing.');
     body.push('  Do not accept a summary in place of the artifact.');
-    body.push('- **If you cannot spawn subagents** — you were launched as a subagent yourself, and');
-    body.push('  Claude Code does not nest delegation — do not start doing the work. Say so plainly and');
-    body.push('  return the numbered briefs you would have dispatched. Tell the user that running you');
-    body.push('  from the main session restores delegation.');
+    body.push('- You can delegate whether you were started as the main session');
+    body.push(`  (\`claude --agent ${agentId}\`) or spawned as a subagent — Claude Code allows nested`);
+    body.push('  subagents up to three layers below the main conversation. If a delegation is refused');
+    body.push('  because that depth is exhausted, do not quietly start doing the work: say so and hand');
+    body.push('  back the numbered briefs you would have dispatched.');
     body.push('');
     body.push('Available specialists:');
     body.push('');
   } else {
-    body.push('Delegate specialized work with the `Task` tool, passing the specialist as `subagent_type`');
+    body.push('Delegate specialized work with the `Agent` tool, passing the specialist as `subagent_type`');
     body.push('(for example `subagent_type: "qa"` to design tests for a story):');
     body.push('');
   }
@@ -3079,7 +3080,7 @@ function generateClaudeCommandSkill({ agentId, command, target, agentTitle }) {
   lines.push('');
   lines.push('## Before you start');
   lines.push('');
-  lines.push(`1. Adopt the \`${canonicalId}\` persona — read \`.claude/agents/${canonicalId}.md\` if you are not already that agent, or delegate this whole workflow with the \`Task\` tool using \`subagent_type: "${canonicalId}"\`.`);
+  lines.push(`1. Adopt the \`${canonicalId}\` persona — read \`.claude/agents/${canonicalId}.md\` if you are not already that agent, or delegate this whole workflow with the \`Agent\` tool using \`subagent_type: "${canonicalId}"\`, or address it directly with \`@agent-${canonicalId}\`.`);
   lines.push('2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.');
   lines.push('3. Track multi-step progress with `TodoWrite`.');
   lines.push('');
@@ -3257,7 +3258,7 @@ function generateClaudeWorkflowSkill({ file, yamlText, target }) {
   lines.push('This is a multi-agent sequence, not a single task. Drive it as the orchestrator:');
   lines.push('');
   lines.push('1. Put the whole sequence into `TodoWrite` before starting, one entry per step below.');
-  lines.push('2. For each step, delegate with the `Task` tool using the listed agent as `subagent_type`.');
+  lines.push('2. For each step, delegate with the `Agent` tool using the listed agent as `subagent_type`.');
   lines.push('   Give each subagent a self-contained brief — it cannot see this conversation.');
   lines.push('3. Check every produced artifact against the step\'s stated output before advancing.');
   lines.push('   Save documents under `docs/` so later steps can read them.');
@@ -3315,7 +3316,8 @@ function generateClaudeIndexSkill({ agents, workflows, target }) {
   lines.push('');
   lines.push('## Agents');
   lines.push('');
-  lines.push('Delegate with the `Task` tool, passing the id as `subagent_type`.');
+  lines.push('Delegate with the `Agent` tool, passing the id as `subagent_type`, or address one directly');
+  lines.push('with `@agent-<id>`.');
   lines.push('');
   lines.push('| Agent | Role | When to use |');
   lines.push('|-------|------|-------------|');
@@ -3528,9 +3530,10 @@ function generateClaudeMdSection({ agents, workflows, target }) {
   lines.push('');
   lines.push('### Agent team');
   lines.push('');
-  lines.push('Delegate with the `Task` tool, passing the id as `subagent_type` (for example');
-  lines.push('`subagent_type: "po"` to draft stories). Route work to the agent that owns the artifact');
-  lines.push('being produced, not the one that consumes it.');
+  lines.push('Delegate with the `Agent` tool, passing the id as `subagent_type` (for example');
+  lines.push('`subagent_type: "po"` to draft stories). To pin a specific agent, address it directly with');
+  lines.push('`@agent-po`. Route work to the agent that owns the artifact being produced, not the one');
+  lines.push('that consumes it.');
   lines.push('');
   lines.push('| Agent | Role | When to use |');
   lines.push('|-------|------|-------------|');
@@ -3538,10 +3541,16 @@ function generateClaudeMdSection({ agents, workflows, target }) {
     lines.push(`| ${agentIcon(a.id)} \`${a.id}\` | ${a.title} | ${a.description} |`);
   }
   lines.push('');
-  lines.push('Run `aigile-orchestrator` or `aigile-manual-orchestrator` from the **main** session when you');
-  lines.push('want one of them to coordinate the team. Claude Code does not nest delegation, so an');
-  lines.push('orchestrator launched as a subagent can only hand back briefs instead of dispatching them.');
-  lines.push('The manual orchestrator additionally asks for confirmation before every delegation.');
+  lines.push('To hand a whole piece of work to a coordinator, start the session as one:');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('claude --agent aigile-orchestrator          # coordinates autonomously');
+  lines.push('claude --agent aigile-manual-orchestrator   # asks before every delegation');
+  lines.push('```');
+  lines.push('');
+  lines.push('Running an orchestrator as the main session means you talk to it directly for the whole');
+  lines.push('conversation. Spawning one as a subagent also works — Claude Code allows nested subagents');
+  lines.push('up to three layers below the main conversation — but you only see its final summary.');
   lines.push('');
   lines.push('### Workflows');
   lines.push('');
@@ -3773,7 +3782,7 @@ function generateClaudePluginReadme({ agentCount, skills, workflows }) {
     '',
     '## What you get',
     '',
-    `- **${agentCount} specialist subagents** — delegate with the \`Task\` tool, e.g. \`subagent_type: "po"\`.`,
+    `- **${agentCount} specialist subagents** — delegate with the \`Agent\` tool (\`subagent_type: "po"\`) or address one with \`@agent-po\`.`,
     `- **${skills.commandSkills} per-role workflows** — \`/aigile:dev-develop-story\`, \`/aigile:qa-quality-gate\`, ...`,
     `- **${workflows} delivery workflows** — \`/aigile:workflow-greenfield-fullstack\` and friends.`,
     `- **${skills.core} AIgile skills** that activate automatically when a request matches.`,

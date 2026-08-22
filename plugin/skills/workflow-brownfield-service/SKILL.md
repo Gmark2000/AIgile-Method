@@ -18,7 +18,7 @@ Agent workflow for enhancing existing backend services and APIs with new feature
 This is a multi-agent sequence, not a single task. Drive it as the orchestrator:
 
 1. Put the whole sequence into `TodoWrite` before starting, one entry per step below.
-2. For each step, delegate with the `Task` tool using the listed agent as `subagent_type`.
+2. For each step, delegate with the `Agent` tool using the listed agent as `subagent_type`.
    Give each subagent a self-contained brief — it cannot see this conversation.
 3. Check every produced artifact against the step's stated output before advancing.
    Save documents under `docs/` so later steps can read them.

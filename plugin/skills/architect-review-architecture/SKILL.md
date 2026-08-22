@@ -13,7 +13,7 @@ AIgile workflow owned by the **Architect** (`architect`) agent.
 
 ## Before you start
 
-1. Adopt the `architect` persona — read `.claude/agents/architect.md` if you are not already that agent, or delegate this whole workflow with the `Task` tool using `subagent_type: "architect"`.
+1. Adopt the `architect` persona — read `.claude/agents/architect.md` if you are not already that agent, or delegate this whole workflow with the `Agent` tool using `subagent_type: "architect"`, or address it directly with `@agent-architect`.
 2. If the context above is empty or ambiguous, ask for what you need with `AskUserQuestion` before doing any work.
 3. Track multi-step progress with `TodoWrite`.
 

@@ -16,7 +16,7 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 ## [1.5.0] - 2026-08-22
 ### Added
 - **Claude Code support (`--for-claude`)** — the installer now generates a complete, out-of-the-box AIgile agent team for [Claude Code](https://code.claude.com):
-  - `.claude/agents/<agent>.md` — one [subagent](https://code.claude.com/docs/en/sub-agents) per role, delegated to with the `Task` tool (`subagent_type: "qa"`). Specialists omit the `tools:` key so they inherit the full session toolset including any MCP servers the user has configured; the two orchestrators are restricted to `Read, Glob, Grep, Task, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so delegation-only is enforced by the toolset and not only by the prompt. Role-relevant AIgile skills are preloaded through the `skills:` frontmatter field.
+  - `.claude/agents/<agent>.md` — one [subagent](https://code.claude.com/docs/en/sub-agents) per role, delegated to with the `Agent` tool (`subagent_type: "qa"`) or addressed directly as `@agent-qa`. Specialists omit the `tools:` key so they inherit the full session toolset including any MCP servers the user has configured; the two orchestrators are restricted to `Read, Glob, Grep, Agent, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so delegation-only is enforced by the toolset and not only by the prompt. Role-relevant AIgile skills are preloaded through the `skills:` frontmatter field.
   - `.claude/skills/` — 44 skills: the four AIgile skills, one workflow skill per agent command (`/aigile-dev-develop-story`, `/aigile-po-create-story`, `/aigile-qa-quality-gate`, ...), one per delivery workflow (`/aigile-workflow-greenfield-fullstack`, ...), and `/aigile` as the routing index. Workflow skills set `disable-model-invocation: true` and take free-form context as `$ARGUMENTS`.
   - `CLAUDE.md` — the always-on project context, written between `<!-- AIGILE:START -->` / `<!-- AIGILE:END -->` markers so re-running the installer replaces only the AIgile block and leaves everything you wrote around it untouched.
   - `.claude/settings.json` — merged rather than overwritten; the installer only adds read permissions for `.aigile-core/`.
@@ -32,14 +32,14 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ### Changed
 - **Platform detection** now recognizes `.claude/` and `CLAUDE.md`, and the `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` environment variables that Claude Code exports — so a plain `install` inside a Claude Code session targets Claude Code without flags.
-- **Copilot/VS Code tool names are translated for Claude Code** the way they already are for Kiro: `runSubagent` → the `Task` tool, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`, `.github/agents` → `.claude/agents`, chatmode → subagent. The `code-tour` agent is exempt from the product-name rewriting, since CodeTour genuinely is a VS Code extension and renaming it produced a false statement ("Claude Code Tour Expert").
+- **Copilot/VS Code tool names are translated for Claude Code** the way they already are for Kiro: `runSubagent` → the `Agent` tool, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`, `.github/agents` → `.claude/agents`, chatmode → subagent. The `code-tour` agent is exempt from the product-name rewriting, since CodeTour genuinely is a VS Code extension and renaming it produced a false statement ("Claude Code Tour Expert").
 
 ### Fixed
 - **`aigile status` printed literal `\n` instead of blank lines.** Ten `console.log` calls in the status and usage output had a doubled escape.
 - **`.aigile-manifest.json` listed agent ids with their extension** (`dev.md`, `analyst.md`) and listed `dev` twice, because the extension-stripping regex was over-escaped (`/\\.md$/`) and never matched, and because `dev.md` and `dev.agent.md` are two source formats for the same agent. Ids are now stripped and de-duplicated.
 
 ### Upgrading
-Re-run the installer: `npx @mark-gozner/aigile-method@latest install --for-claude --yes`, then start a new Claude Code session and run `/aigile`. Existing Copilot, Antigravity, and Kiro installs are unaffected — all four platforms can be installed side by side.
+Re-run the installer: `npx @mark-gozner/aigile-method@latest install --for-claude --yes`, then start a new Claude Code session and run `/aigile`. To let an orchestrator drive a whole session, start it with `claude --agent aigile-orchestrator`. Existing Copilot, Antigravity, and Kiro installs are unaffected — all four platforms can be installed side by side.
 
 ## [1.4.2] - 2026-07-28
 ### Fixed
