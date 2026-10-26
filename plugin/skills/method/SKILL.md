@@ -15,16 +15,16 @@ with `@agent-<id>`.
 
 | Agent | Role | When to use |
 |-------|------|-------------|
-| 🎬 `aigile-manual-orchestrator` | AIgile Manual Orchestrator | Interactive delegation-only coordinator — confirms every step with the user via the `AskUserQuestion` tool before delegating |
+| 🎬 `aigile-manual-orchestrator` | AIgile Manual Orchestrator | Interactive delegation-only coordinator — confirms every step with |
 | 🧙 `aigile-master` | AIgile Master Task Executor | Use when you need comprehensive expertise across all domains, running one-off tasks that do not require a persona, or just wanting to use the same agent for many things |
-| 🎭 `aigile-orchestrator` | AIgile Orchestrator | Strict delegation-only coordinator — never executes, always delegates to specialist agents |
+| 🎭 `aigile-orchestrator` | AIgile Orchestrator | Strict delegation-only coordinator — never executes, always |
 | 🧠 `analyst` | Business Analyst | Market research, brainstorming, competitive analysis, briefs |
 | 🏗️ `architect` | Architect | System/solution architecture, API and infra design |
 | 🤖 `automation-tester` | Automation Tester | Use for end-to-end and browser test automation, Playwright suites, visual regression, cross-browser validation, and API test coverage. |
-| 🧭 `code-tour` | VSCode Tour Expert | Expert agent for creating and maintaining VSCode CodeTour files with comprehensive schema support and best practices |
+| 🧭 `code-tour` | VSCode Tour Expert | Expert agent for creating and maintaining VSCode CodeTour files |
 | 💻 `dev` | Full Stack Developer | Use for code implementation, debugging, refactoring, test design, and developer best practices across the stack |
 | ⚙️ `devops` | DevOps Engineer | Use for CI/CD pipelines, infrastructure as code, deployments, release automation, containerization, and observability. |
-| ⚛️ `expert-react-frontend-engineer` | Expert React Frontend Engineer | Expert React 19.2 frontend engineer specializing in modern hooks, Server Components, Actions, TypeScript, and performance optimization |
+| ⚛️ `expert-react-frontend-engineer` | Expert React Frontend Engineer | Expert React 19.2 frontend engineer specializing in modern hooks, |
 | 📋 `pm` | Product Manager | Planning, delivery tracking, stakeholder alignment |
 | 🧭 `po` | Product Owner | Use for story clarity, AC quality, prioritization, stakeholder alignment. |
 | 🧪 `qa` | Test Architect & Quality Advisor | Use for test design, quality gates, risk assessment, and defect prevention. |
@@ -32,6 +32,7 @@ with `@agent-<id>`.
 | ⏱️ `sm` | Scrum Master | Use for ceremony facilitation, team health, and continuous improvement. |
 | 🖌️ `ui-expert` | UI Expert | Advanced UI workflows, Figma operations, tokens & component libraries |
 | 🎨 `ux-expert` | UX Expert | Use for research plans, journey mapping, and usability testing. |
+| 🤖 `workflow-creator` | Workflow Creator | Use when creating or customizing workflows. Author ordered workflow |
 
 ## Delivery workflows
 

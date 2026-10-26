@@ -1,6 +1,6 @@
 ---
 description: "Perform a code review"
-mode : 'ask'
+agent: ask
 ---
 
 ## Code Review Expert: Detailed Analysis and Best Practices

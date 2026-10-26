@@ -6,12 +6,27 @@ The format is inspired by Keep a Changelog, and this project follows Semantic Ve
 
 ## [Unreleased]
 ### Added
+- Local strict version-1 workflow scheduler with create/validate/run/status/advance commands, frozen inputs/definitions, hash-backed evidence, snapshot-bound QA/publication gates, explicit approvals, revision locking, bounded retry and uncertain-outcome reconciliation. No automatic agent or provider execution.
+- Workflow Creator agent and canonical/portable discovery skills, customizable ordered-role scaffolds, bug-resolution template and workflow guide. Definitions/runs survive installer lifecycle; package tests cover new CLI commands.
+- Copilot MCP host selection (`--copilot-mcp-host=vscode|native`) with retained opt-in, structured server/input ownership, safe host switches, and explicit native-schema diagnostics. No unrestricted tool filters are invented.
+- Workspace-local Codex target (`--for-codex`, `codex` alias), native TOML roles, managed `AGENTS.md`, namespaced skill adapters and optional non-destructive MCP configuration.
+- `$aigile-codex-goal` and `/aigile-copilot-goal` delivery workflows with approval checkpoints and independent QA. Codex native `/goal` remains untouched; CLI baseline is 0.153.4, with IDE parity unverified.
+- Owned-file manifest v2, staged conflict checks, byte-stable updates and target-scoped uninstall preserving edits and shared resources.
+- Unit and temporary-workspace CLI tests for YAML/TOML generation, all five targets, ownership, optional MCP and paths with spaces.
 
 ### Changed
+- Copilot prefers native agent sources, uses discoverable skill adapters alongside extension-host prompts, and preserves granular tool permissions.
+- Lifecycle commands share one managed installation path. Existing ambiguous configuration is preserved; legacy manifests adopt only identical generated files.
 
 ### Fixed
+- Skill invocation flags and argument hints now retain typed values; shortened names also locate recursive resources correctly. Prompt adapters retain execution requirements and distinguish optional model preferences without granting CLI auto-approvals.
+- Copilot coordinator and worker policies handle unavailable tools, exact display-name routing, parent escalation, and turn-ending manual consent. Removed the shipped route to the excluded local MVEL specialist without changing that local source.
+- Documented Copilot CLI `/goal` as `/autopilot`, separately from Codex goal controls and the portable editor workflow; references checked against VS Code 1.136/1.136.2 and official September 2026 docs.
+- Invalid Copilot tool-array serialization, outdated invocation metadata and prompt `mode` metadata.
+- Unknown target flags and incompatible optional flags now fail instead of silently selecting or modifying another integration.
 
 ### Removed
+- Automatic consumer script and VS Code settings mutation from integration installation; destructive legacy pruning is no longer supported.
 
 ## [1.5.0] - 2026-08-22
 ### Added

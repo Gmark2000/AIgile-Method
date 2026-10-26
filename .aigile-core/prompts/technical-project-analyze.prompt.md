@@ -1,6 +1,6 @@
 ---
 description: Analyze the project structure, architecture, and design patterns.
-mode: agent
+agent: agent
 ---
 
 Your goal is to produce a comprehensive, actionable analysis of the codebase structure, architecture, and dependencies.

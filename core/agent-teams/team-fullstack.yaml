@@ -12,6 +12,7 @@ agents:
   - ui-expert
   - automation-tester
   - devops
+  - workflow-creator
 workflows:
   # Fullstack workflows
   # - enterprise-feature-delivery.yaml

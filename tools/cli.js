@@ -4,6 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface, emitKeypressEvents } from 'node:readline';
 import { printInstallBanner } from './shared/bannerArt.js';
+import os from 'node:os';
+import { applyManagedPlan, filePlan, safePath } from './shared/managed-install.js';
+import { collectSources, modernizeAgent, modernizePrompt, clientSkills, codexRole, codexGuidance, codexMcp, copilotMcp, validateNativeMcp, frontmatter } from './shared/client-assets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -314,8 +317,17 @@ async function multiSelectPrompt({ title, options, defaults = [] }) {
  * `install` / `install --yes` targets the IDE the user actually works in.
  * Falls back to Copilot when nothing is detected (historical default).
  */
-function detectPlatforms(dest) {
+function detectPlatforms(dest, { fallback = true } = {}) {
+  const manifestPath = safePath(dest, '.aigile-manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(read(manifestPath));
+    if (manifest?.schemaVersion === 2) {
+      if (!manifest.targets || typeof manifest.targets !== 'object' || Array.isArray(manifest.targets)) throw new Error('Invalid ownership manifest');
+      return Object.keys(manifest.targets);
+    }
+  }
   const found = [];
+  if (fs.existsSync(path.join(dest, '.codex'))) found.push('codex');
   if (fs.existsSync(path.join(dest, '.kiro'))) found.push('kiro');
   if (fs.existsSync(path.join(dest, '.github'))) found.push('copilot');
   if (fs.existsSync(path.join(dest, '.agent')) || fs.existsSync(path.join(dest, 'GEMINI.md'))) found.push('antigravity');
@@ -325,21 +337,22 @@ function detectPlatforms(dest) {
   if ((termProgram.includes('kiro') || process.env.KIRO_HOME) && !found.includes('kiro')) found.push('kiro');
   // Claude Code exports these when the installer runs from inside a session
   if ((process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) && !found.includes('claude')) found.push('claude');
-  return found.length ? found : ['copilot'];
+  return found.length || !fallback ? found : ['copilot'];
 }
 
 /**
  * Resolve target platforms for the non-interactive code paths.
  * Explicit flags always win; otherwise fall back to workspace detection.
  */
-function resolvePlatforms(dest, { copilot = false, antigravity = false, kiro = false, claude = false } = {}) {
-  if (copilot || antigravity || kiro || claude) return { copilot, antigravity, kiro, claude, detected: false };
+function resolvePlatforms(dest, { copilot = false, antigravity = false, kiro = false, claude = false, codex = false } = {}) {
+  if (copilot || antigravity || kiro || claude || codex) return { copilot, antigravity, kiro, claude, codex, detected: false };
   const detected = detectPlatforms(dest);
   return {
     copilot: detected.includes('copilot'),
     antigravity: detected.includes('antigravity'),
     kiro: detected.includes('kiro'),
     claude: detected.includes('claude'),
+    codex: detected.includes('codex'),
     detected: true,
   };
 }
@@ -351,6 +364,7 @@ function describePlatforms(target) {
     target.antigravity && 'antigravity',
     target.kiro && 'kiro',
     target.claude && 'claude',
+    target.codex && 'codex',
   ].filter(Boolean).join(', ');
 }
 
@@ -1527,70 +1541,11 @@ const SHORT_NAME_TO_NAMESPACE = {
  *   namespace present (MCP entries are NOT expanded).
  */
 function formatToolsFrontmatter(toolList) {
-  const namespaces = new Set();
-  const mcpEntries = [];
-  const seenMcp = new Set();
-
-  for (const raw of Array.isArray(toolList) ? toolList : [toolList]) {
-    const t = String(raw || '').trim();
-    if (!t) continue;
-    if (t.includes('/')) {
-      const ns = t.split('/')[0];
-      if (KNOWN_NAMESPACES.has(ns)) {
-        namespaces.add(ns);
-      } else if (!seenMcp.has(t)) {
-        seenMcp.add(t);
-        mcpEntries.push(`'${t}'`);
-      }
-    } else if (KNOWN_NAMESPACES.has(t)) {
-      namespaces.add(t);
-    } else if (SHORT_NAME_TO_NAMESPACE[t]) {
-      namespaces.add(SHORT_NAME_TO_NAMESPACE[t]);
-    }
-    // Unknown bare names are silently dropped — only known namespaces or
-    // qualified MCP entries are emitted.
-  }
-
-  // Wildcard dedup: if `<ns>/*` is present for an MCP namespace, drop sibling
-  // explicit `<ns>/<specific>` entries (already granted by the wildcard).
-  // Only applies within the SAME namespace and only to MCP entries (the
-  // bracketed granular line for KNOWN_NAMESPACES is untouched).
-  const wildcardMcpNs = new Set();
-  for (const e of mcpEntries) {
-    const inner = e.slice(1, -1); // strip surrounding single quotes
-    const slash = inner.indexOf('/');
-    if (slash !== -1 && inner.slice(slash + 1) === '*') {
-      wildcardMcpNs.add(inner.slice(0, slash));
-    }
-  }
-  const dedupedMcpEntries = mcpEntries.filter((e) => {
-    const inner = e.slice(1, -1);
-    const slash = inner.indexOf('/');
-    if (slash === -1) return true;
-    const ns = inner.slice(0, slash);
-    const rest = inner.slice(slash + 1);
-    if (rest === '*') return true; // keep the wildcard itself
-    return !wildcardMcpNs.has(ns);
-  });
-
-  const topLevel = [];
-  let mcpInserted = false;
-  for (const ns of NAMESPACE_ORDER) {
-    if (ns === 'edit' && dedupedMcpEntries.length && !mcpInserted) {
-      topLevel.push(...dedupedMcpEntries);
-      mcpInserted = true;
-    }
-    if (namespaces.has(ns)) topLevel.push(ns);
-  }
-  if (dedupedMcpEntries.length && !mcpInserted) topLevel.push(...dedupedMcpEntries);
-
-  const granular = [];
-  for (const ns of NAMESPACE_ORDER) {
-    if (!namespaces.has(ns)) continue;
-    granular.push(...NAMESPACE_GRANULAR_TOOLS[ns]);
-  }
-
-  return `tools:${topLevel.join(', ')}\n[${granular.join(', ')}]`;
+  const values = (Array.isArray(toolList) ? toolList : [toolList])
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .map(value => value === 'askQuestions' ? 'vscode/askQuestions' : value);
+  return `tools: ${JSON.stringify([...new Set(values)])}`;
 }
 
 /**
@@ -1674,13 +1629,13 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   // Build YAML frontmatter in new custom agents format
   const fmLines = [
     '---',
-    `name: ${title}`,
-    `description: "${description}"`,
+    `name: ${JSON.stringify(title)}`,
+    `description: ${JSON.stringify(description)}`,
     `argument-hint: "Describe your ${agentId} task"`,
     formatToolsFrontmatter(toolList)
   ];
   fmLines.push('model: Claude Opus 4.6');
-  fmLines.push('user-invokable: true');
+  fmLines.push('user-invocable: true');
 
   if (handoffs.length > 0) {
     fmLines.push('handoffs:');
@@ -1736,12 +1691,13 @@ function generateCustomAgent({ agentId, agentMeta, agentMd, tools, tasks, checkl
   body.push('## Subagent Delegation');
   body.push('');
   body.push('Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:');
+  body.push('Use exact installed display names and only available, permitted delegation. As a worker subagent, return questions, consent requests, and escalation needs to the parent; ask/todo tools and nested delegation may be unavailable. Use a text checklist instead of todo. Never enable nested delegation or bypass permissions. In a top-level session, ask conversationally when question tools are unavailable.');
   body.push('');
   body.push('| Agent | Specialty |');
   body.push('|-------|-----------|');
   for (const t of delegationTargets) {
     if (t.id !== canonicalId) {
-      body.push(`| \`${t.id}\` | ${t.specialty} |`);
+      body.push(`| \`${t.label}\` | ${t.specialty} |`);
     }
   }
   body.push('');
@@ -2257,6 +2213,15 @@ function kiroSkillsFor(agentId) {
  * Generate a Kiro custom agent file (.kiro/agents/<id>.md).
  */
 function generateKiroAgent({ agentId, agentMeta, agentMd, tasks }) {
+  const canonical = frontmatter(agentMd);
+  const explicitTools = canonical.metadata.tools;
+  const nondelegating = (Array.isArray(canonical.metadata.agents) && canonical.metadata.agents.length === 0) ||
+    (Array.isArray(explicitTools) && !explicitTools.some(tool => ['agent', 'runSubagent', '*'].includes(tool)));
+  if (nondelegating) {
+    const toolMap = { read: 'read', search: 'read', edit: 'write', execute: 'shell', web: 'web', todo: 'todo_list' };
+    const tools = [...new Set((explicitTools || []).map(tool => toolMap[tool]).filter(Boolean))];
+    return `---\nname: ${agentId}\ndescription: ${JSON.stringify(kiroifyText(canonical.metadata.description || agentMeta.whenToUse || agentId))}\ntools: ${JSON.stringify(tools)}\nincludeMcpJson: false\nincludePowers: false\n---\n\n${kiroifyText(canonical.body)}\n`;
+  }
   const title = kiroifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId));
   const description = agentMeta.whenToUse || `Use for ${title} responsibilities and workflows.`;
   const person = { ...personaFor(agentId), ...(agentMeta.persona || {}) };
@@ -2860,6 +2825,10 @@ function claudeAgentDescription(agentId, agentMeta, title, person) {
  * Generate a Claude Code subagent file (.claude/agents/<id>.md).
  */
 function generateClaudeAgent({ agentId, agentMeta, agentMd, tasks, target }) {
+  if (agentId === 'workflow-creator') {
+    const parsed = frontmatter(agentMd);
+    return `---\nname: workflow-creator\ndescription: ${JSON.stringify(parsed.metadata.description)}\ntools: Read, Glob, Grep, Write, Edit, Bash, AskUserQuestion\n---\n\n${claudeifySkill(claudeifyText(parsed.body, { keepEditorNames: true }), target)}\n`;
+  }
   const t = target;
   const opts = { keepEditorNames: CLAUDE_KEEP_EDITOR_NAMES.has(agentId) };
   const title = claudeifyText(agentMeta.title || agentMeta.agentRole || toTitleCase(agentId), opts);
@@ -4058,7 +4027,8 @@ function skillsListCommand() {
     ? fs.readdirSync(bundledDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
     : [];
 
-  console.log('\nAIgile skills (installed with --for-kiro into .kiro/skills/):');
+  console.log('\nAIgile skills: Kiro (.kiro/skills), Codex (.agents/skills/aigile-codex-*), Copilot (.github/skills/aigile-copilot-*), Claude (.claude/skills).');
+  console.log('Codex/Copilot adapters include goal, tasks, prompts, workflows and resources. Install with --for-codex or --for-copilot.');
   for (const name of bundled) console.log(`  - ${name}`);
 
   console.log('\nCommunity skills (fetch with `aigile skills:add <id>`):');
@@ -4171,7 +4141,7 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
   const mcpCatalog = buildMcpCatalog();
   const generatedAgents = [];
   if (fs.existsSync(agentsDir)) {
-    const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+    const files = [...collectSources(agentsDir, true).values()];
     for (const f of files) {
       const agentPath = path.join(agentsDir, f);
       const agentMd = read(agentPath);
@@ -4188,8 +4158,7 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
       // its block-style YAML list becomes the canonical custom-agent format).
       if (isNativeAgent && !useLegacyFormat) {
         const outName = f;
-        const needsRewrite = (agentId === 'aigile-orchestrator' || agentId === 'aigile-manual-orchestrator');
-        const finalContent = needsRewrite ? rewriteAgentFrontmatterTools(agentMd) : agentMd;
+        const finalContent = modernizeAgent(agentMd);
         write(path.join(outputDir, outName), finalContent);
         generatedAgents.push({ id: agentId, format: 'native' });
         continue;
@@ -4226,10 +4195,12 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
     const promptsSrc = path.join(root, 'core', 'prompts');
     const promptsDst = path.join(dest, '.github', 'prompts');
     if (fs.existsSync(promptsSrc)) {
-      copyDir(promptsSrc, promptsDst);
+      for (const source of listFilesRecursive(promptsSrc)) {
+        write(path.join(promptsDst, path.relative(promptsSrc, source)), modernizePrompt(read(source)));
+      }
       console.log('✅ Copied prompts to .github/prompts');
     }
-  } catch (e) { /* non-fatal */ }
+  } catch (e) { throw new Error(`Prompt generation failed: ${e.message}`); }
   let javaInstructionsCopied = false;
   if (addJavaInstructions) {
     try {
@@ -4249,7 +4220,122 @@ function installGithubCopilot(dest, { addJavaInstructions = false, useLegacyForm
   const color = (code) => (s) => `\x1b[${code}m${s}\x1b[0m`;
   const green = color(32);
   if (javaInstructionsCopied) console.log(green('✅ Added Java instructions to .github/instructions'));
+  for (const entry of clientSkills(root, 'copilot')) write(path.join(dest, entry.path), entry.content);
   console.log(green('✅ Installed AIgile for GitHub Copilot into'), dest);
+}
+
+function installCodex(dest) {
+  copyDir(path.join(root, 'core'), path.join(dest, '.aigile-core'));
+  for (const [id, filename] of collectSources(path.join(root, 'core/agents'))) {
+    const role = codexRole({ id, filename, content: read(path.join(root, 'core/agents', filename)), tasks: listTasksForAgent(id) });
+    write(path.join(dest, '.codex/agents', `${role.name}.toml`), role.content);
+  }
+  for (const entry of clientSkills(root, 'codex')) write(path.join(dest, entry.path), entry.content);
+}
+
+const platformNames = ['copilot', 'antigravity', 'kiro', 'claude', 'codex'];
+
+async function managedInstallCommand(command, options) {
+  const dest = process.cwd();
+  if (options.has('--global')) throw new Error('Integration lifecycle commands are workspace-local; --global is unsupported.');
+  if (options.has('--prune-legacy')) throw new Error('Automatic legacy pruning is disabled: review and remove legacy files manually.');
+  const explicit = Object.fromEntries(platformNames.map(name => [name, options.has(`--for-${name}`)]));
+  let target = resolvePlatforms(dest, explicit);
+  if (command === 'install' && !options.size && process.stdin.isTTY) {
+    const selected = await multiSelectPrompt({
+      title: 'Select target platforms:',
+      options: platformNames.map(name => ({ label: name === 'codex' ? 'OpenAI Codex (.codex/agents/ + .agents/skills/ + AGENTS.md)' : name, value: name })),
+      defaults: platformNames.filter(name => target[name]),
+    });
+    if (selected.length) target = Object.fromEntries(platformNames.map(name => [name, selected.includes(name)]));
+    const components = await multiSelectPrompt({ title: 'Select optional components:', options: [
+      { label: 'Install project MCP configuration', value: '--with-mcp' },
+      ...(target.copilot ? [{ label: 'Include Java instructions', value: '--with-java-instructions' }] : []),
+    ], defaults: [] });
+    for (const component of components) options.add(component);
+  }
+  const selected = platformNames.filter(name => target[name]);
+  if (options.has('--with-community-skills') && !target.kiro) throw new Error('--with-community-skills requires --for-kiro.');
+  if (options.has('--with-mcp-settings') && !target.copilot) throw new Error('--with-mcp-settings requires --for-copilot.');
+  const manifestPath = safePath(dest, '.aigile-manifest.json');
+  const previous = fs.existsSync(manifestPath) ? JSON.parse(read(manifestPath)) : {};
+  const hostFlags = [...options].filter(option => option === '--copilot-mcp-host' || option.startsWith('--copilot-mcp-host='));
+  const requestedHost = hostFlags[0]?.slice('--copilot-mcp-host='.length);
+  if (hostFlags.length && (hostFlags.length !== 1 || !['vscode', 'native'].includes(requestedHost))) throw new Error('--copilot-mcp-host requires exactly one value: vscode or native.');
+  if (hostFlags.length && (!target.copilot || !(options.has('--with-mcp') || previous.targets?.copilot?.mcp === true) || command === 'uninstall')) throw new Error('--copilot-mcp-host requires a Copilot MCP opt-in (--for-copilot --with-mcp, or an existing managed Copilot MCP install); omit it for uninstall.');
+  if (command === 'uninstall') {
+    if (!platformNames.some(name => explicit[name])) throw new Error('Uninstall requires an explicit --for-* target.');
+    if (previous.schemaVersion !== 2) throw new Error('No owned-file manifest; legacy files must be reviewed manually.');
+    const result = applyManagedPlan(dest, [], { targets: Object.fromEntries(selected.map(name => [name, {}])), version: getPackageVersion(), uninstall: true });
+    console.log(`Removed ${result.changed} unchanged owned outputs. User files and shared resources retained.`);
+    if (result.conflicts.length) {
+      console.error(`Preserved edited files: ${result.conflicts.join(', ')}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  const entries = [];
+  const targets = {};
+  for (const name of selected) {
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'aigile render '));
+    const prior = previous.targets?.[name] || {};
+    const mcp = options.has('--with-mcp') || prior.mcp === true;
+    const mcpHost = name === 'copilot' ? requestedHost || prior.mcpHost || 'vscode' : undefined;
+    const java = options.has('--with-java-instructions') || prior.java === true;
+    try {
+      if (name === 'copilot') installGithubCopilot(stage, { addJavaInstructions: java, useLegacyFormat: options.has('--use-legacy-format') });
+      if (name === 'antigravity') installAntigravity(stage);
+      if (name === 'kiro') installKiro(stage);
+      if (name === 'claude') installClaudeCode(stage);
+      if (name === 'codex') installCodex(stage);
+      if (mcp && name !== 'codex') {
+        if (name === 'copilot') {
+          if (mcpHost === 'native') {
+            const configPath = safePath(dest, '.mcp.json');
+            if (fs.existsSync(configPath)) validateNativeMcp(read(configPath));
+          }
+          const config = copilotMcp(JSON.parse(read(path.join(root, 'mcp/servers.json'))), mcpHost);
+          for (const warning of config.warnings) console.warn(warning);
+          entries.push(...config.entries.map(entry => ({ ...entry, owners: [name] })));
+        }
+        if (name === 'antigravity') writeMcpJson(stage);
+        if (name === 'kiro') writeKiroMcpJson(stage);
+        if (name === 'claude') writeClaudeMcpJson(stage);
+      }
+      if (options.has('--with-mcp-settings') && name === 'copilot') writeMockMcp(stage);
+      for (const entry of filePlan(stage, name)) {
+        if (mcp && ['.mcp.json', '.vscode/mcp.json'].includes(entry.path)) {
+          const config = JSON.parse(entry.content.toString('utf8'));
+          for (const section of ['servers', 'mcpServers', 'inputs']) {
+            for (const [id, value] of section === 'inputs' ? (config.inputs || []).map(input => [input.id, input]) : Object.entries(config[section] || {})) {
+              entries.push({ path: entry.path, jsonPath: [section, id], content: JSON.stringify(value), owners: [name] });
+            }
+          }
+        } else entries.push(entry);
+      }
+      if (name === 'codex') {
+        entries.push({ ...codexGuidance, owners: [name] });
+        if (mcp) {
+          const configPath = safePath(dest, '.codex/config.toml');
+          const config = codexMcp(JSON.parse(read(path.join(root, 'mcp/servers.json'))), fs.existsSync(configPath) ? read(configPath) : '');
+          for (const warning of config.warnings) console.warn(warning);
+          entries.push({ ...config, owners: [name] });
+        }
+      }
+      targets[name] = { agents: true, skills: name !== 'antigravity', handoffs: name === 'copilot', mcp, ...(name === 'copilot' ? { java, ...(mcp ? { mcpHost } : {}) } : {}) };
+    } finally {
+      fs.rmSync(stage, { recursive: true, force: true });
+    }
+  }
+  const legacyTargets = previous.schemaVersion === 2 ? {} : Object.fromEntries(detectPlatforms(dest, { fallback: false }).map(name => [name, { legacy: true }]));
+  const result = applyManagedPlan(dest, entries, { targets, legacyTargets, version: getPackageVersion() });
+  console.log(`Installed ${selected.join(', ')}: ${result.changed} changed outputs; ownership manifest saved.`);
+  if (target.codex) console.warn('Codex compatibility baseline: CLI 0.153.4. Client version/discovery is not checked; older clients and IDE /goal parity are unverified. Project configuration requires trust; trust and global settings were not changed.');
+  if (options.has('--with-community-skills')) {
+    if (!target.kiro) throw new Error('--with-community-skills requires --for-kiro.');
+    const community = await addCommunitySkills([], { dest });
+    if (community.failed.length) process.exitCode = 1;
+  }
 }
 
 function maybeAddConsumerScripts(dest) {
@@ -4377,6 +4463,14 @@ function showStatus(cwd) {
   }
   try {
     const data = JSON.parse(read(manifestPath));
+    if (data.schemaVersion === 2) {
+      console.log(`AIgile ${data.version} (owned-file manifest v2)`);
+      for (const [name, capabilities] of Object.entries(data.targets)) {
+        const count = Object.values(data.files).filter(record => record.owners.includes(name)).length;
+        console.log(`${name}: ${count} owned outputs; ${JSON.stringify(capabilities)}`);
+      }
+      return;
+    }
     console.log('\nAIgile Installation Status');
     console.log('---------------------------');
     console.log(`Version:        ${data.version}`);
@@ -4442,7 +4536,12 @@ function listAgentsCommand(cwd) {
 function parseFlags(argv) {
   const flags = new Set();
   const args = [];
-  for (const a of argv) {
+  for (let index = 0; index < argv.length; index++) {
+    const a = argv[index];
+    if (a === '--copilot-mcp-host' && argv[index + 1] && !argv[index + 1].startsWith('--')) {
+      flags.add(`${a}=${argv[++index]}`);
+      continue;
+    }
     if (a.startsWith('--')) flags.add(a);
     else args.push(a);
   }
@@ -4572,54 +4671,30 @@ function writeVscodeSettings(dest) {
 
 const cmd = process.argv[2];
 const { flags } = parseFlags(process.argv.slice(3));
-if (cmd === 'bundle') bundle();
-else if (cmd === 'install') {
-  const autoYes = flags.has('--yes') || flags.has('-y');
-  const addMcpJsonFlag = flags.has('--with-mcp');
-  const addMcpSettingsFlag = flags.has('--with-mcp-settings');
-  const addJavaInstructionsFlag = flags.has('--with-java-instructions');
-  const addCommunitySkillsFlag = flags.has('--with-community-skills');
-  const forAntigravityFlag = flags.has('--for-antigravity');
-  const forKiroFlag = flags.has('--for-kiro');
-  const forCopilotFlag = flags.has('--for-copilot');
-  const forClaudeFlag = flags.has('--for-claude');
-  // If flags explicitly provided, skip prompts and just do what flags request
-  if (addMcpJsonFlag || addMcpSettingsFlag || addJavaInstructionsFlag || addCommunitySkillsFlag || forAntigravityFlag || forKiroFlag || forCopilotFlag || forClaudeFlag) {
-    printInstallBanner({ showGMSignature: true });
-    const dest = process.cwd();
-    // Explicit platform flags win; otherwise target the IDEs this project already uses
-    const target = resolvePlatforms(dest, { copilot: forCopilotFlag, antigravity: forAntigravityFlag, kiro: forKiroFlag, claude: forClaudeFlag });
-    if (target.detected) {
-      console.log(`Detected target platform(s): ${describePlatforms(target)}`);
-    }
-    if (target.copilot) {
-      installGithubCopilot(dest, { addJavaInstructions: addJavaInstructionsFlag });
-    }
-    if (target.antigravity) {
-      installAntigravity(dest);
-    }
-    if (target.kiro) {
-      installKiro(dest);
-      if (addCommunitySkillsFlag) await addCommunitySkills([], { dest });
-    } else if (addCommunitySkillsFlag) {
-      console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
-    }
-    if (target.claude) {
-      installClaudeCode(dest);
-    }
-    maybeAddConsumerScripts(dest);
-    if (flags.has('--prune-legacy')) pruneLegacy(dest);
-    if (addMcpSettingsFlag) writeMockMcp(dest);
-    if (addMcpJsonFlag) {
-      if (target.copilot || target.antigravity) writeMcpJson(dest);
-      if (target.kiro) writeKiroMcpJson(dest);
-      if (target.claude) writeClaudeMcpJson(dest);
-    }
-    if (target.copilot) writeVscodeSettings(dest);
-    writeManifest(dest, { addMcpJson: addMcpJsonFlag, addMcpSettings: addMcpSettingsFlag, addJavaInstructions: addJavaInstructionsFlag, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
-  } else {
-    await installInteractive({ autoYes });
-  }
+const unknownTarget = [...flags].find(flag => flag.startsWith('--for-') && !platformNames.some(name => flag === `--for-${name}`));
+if (unknownTarget) {
+  console.error(`Unknown installer target: ${unknownTarget}`);
+  process.exitCode = 1;
+}
+else if (['install', 'init', 'auth-install', 'update', 'uninstall', 'codex'].includes(cmd) || !cmd) {
+  if (cmd === 'codex') flags.add('--for-codex');
+  try { await managedInstallCommand(cmd || 'init', flags); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+else if (cmd === 'bundle') bundle();
+else if (cmd === 'workflow') {
+  try {
+    const { workflowCommand } = await import('./shared/workflow.js');
+    console.log(JSON.stringify(workflowCommand(process.cwd(), process.argv.slice(3)), null, 2));
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+else if (cmd === 'doctor') {
+  try {
+    const { doctorCommand } = await import('./shared/doctor.js');
+    const report = doctorCommand(process.cwd(), process.argv.slice(3));
+    console.log(JSON.stringify(report, null, 2));
+    if (report.strict && !report.healthy) process.exitCode = 1;
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
 else if (cmd === 'status') {
   showStatus(process.cwd());
@@ -4631,6 +4706,10 @@ else if (cmd === 'skills:list' || cmd === 'list:skills') {
   skillsListCommand();
 }
 else if (cmd === 'skills:add') {
+  if (flags.has('--for-codex') || flags.has('--for-copilot')) {
+    console.error('Bundled Codex/Copilot skills use install --for-codex/--for-copilot. Community skills:add supports Kiro only.');
+    process.exitCode = 1;
+  } else {
   const { flags: skillFlags, args: skillArgs } = parseFlags(process.argv.slice(3));
   const ids = [...skillArgs];
   if (skillFlags.has('--all')) ids.push('--all');
@@ -4650,117 +4729,56 @@ else if (cmd === 'skills:add') {
     process.exitCode = 1;
   }
 }
+}
 else if (cmd === 'auth') {
   // For public npm, auth is handled via `npm login` or NPM_TOKEN environment variable
   console.log('For public npm registry, use `npm login` or set NPM_TOKEN environment variable.');
   console.log('No additional auth configuration is needed for @mark-gozner/aigile-method.');
-}
-else if (cmd === 'init' || !cmd) {
-  // Unified, easiest path for new users: ensure auth then install.
-  // Flags: --token <value>, --with-mcp, --with-mcp-settings, --prune-legacy, --yes
-  const argvRest = process.argv.slice(2); // may include 'init'
-  const passThrough = new Set();
-  for (let i = 0; i < argvRest.length; i++) {
-    const a = argvRest[i];
-    if (a === 'init') continue;
-    if (a === '--token' && argvRest[i + 1]) { i++; continue; } // skip legacy token flag
-    if (a.startsWith('--token=')) { continue; } // skip legacy token flag
-    passThrough.add(a);
-  }
-  // Proceed with install (non-interactive by default)
-  printInstallBanner({ showGMSignature: true });
-  const dest = process.cwd();
-  const addMcpJson = passThrough.has('--with-mcp');
-  const addMcpSettings = passThrough.has('--with-mcp-settings');
-  const addJavaInstructions = passThrough.has('--with-java-instructions');
-  const target = resolvePlatforms(dest, {
-    copilot: passThrough.has('--for-copilot'),
-    antigravity: passThrough.has('--for-antigravity'),
-    kiro: passThrough.has('--for-kiro'),
-    claude: passThrough.has('--for-claude'),
-  });
-  if (target.detected) {
-    console.log(`Detected target platform(s): ${describePlatforms(target)}`);
-  }
-  if (target.copilot) installGithubCopilot(dest, { addJavaInstructions });
-  if (target.antigravity) installAntigravity(dest);
-  if (target.kiro) {
-    installKiro(dest);
-    if (passThrough.has('--with-community-skills')) await addCommunitySkills([], { dest });
-  } else if (passThrough.has('--with-community-skills')) {
-    console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
-  }
-  if (target.claude) installClaudeCode(dest);
-  maybeAddConsumerScripts(dest);
-  if (passThrough.has('--prune-legacy')) pruneLegacy(dest);
-  if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) {
-    if (target.copilot || target.antigravity) writeMcpJson(dest);
-    if (target.kiro) writeKiroMcpJson(dest);
-    if (target.claude) writeClaudeMcpJson(dest);
-  }
-  if (target.copilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
-  console.log('✅ Init complete');
-}
-else if (cmd === 'auth-install') {
-  // Deprecated: For public npm, just use init or install directly
-  console.log('Note: auth-install is deprecated for public npm. Running install instead...');
-  printInstallBanner({ showGMSignature: true });
-  const dest = process.cwd();
-  const argvRest = process.argv.slice(3);
-  const addMcpJson = argvRest.includes('--with-mcp');
-  const addMcpSettings = argvRest.includes('--with-mcp-settings');
-  const addJavaInstructions = argvRest.includes('--with-java-instructions');
-  const target = resolvePlatforms(dest, {
-    copilot: argvRest.includes('--for-copilot'),
-    antigravity: argvRest.includes('--for-antigravity'),
-    kiro: argvRest.includes('--for-kiro'),
-    claude: argvRest.includes('--for-claude'),
-  });
-  if (target.copilot) installGithubCopilot(dest, { addJavaInstructions });
-  if (target.antigravity) installAntigravity(dest);
-  if (target.kiro) {
-    installKiro(dest);
-    if (argvRest.includes('--with-community-skills')) await addCommunitySkills([], { dest });
-  } else if (argvRest.includes('--with-community-skills')) {
-    console.warn('⚠️ --with-community-skills applies to Kiro; add --for-kiro (or run `aigile skills:add`).');
-  }
-  if (target.claude) installClaudeCode(dest);
-  maybeAddConsumerScripts(dest);
-  if (argvRest.includes('--prune-legacy')) pruneLegacy(dest);
-  if (addMcpSettings) writeMockMcp(dest);
-  if (addMcpJson) {
-    if (target.copilot || target.antigravity) writeMcpJson(dest);
-    if (target.kiro) writeKiroMcpJson(dest);
-    if (target.claude) writeClaudeMcpJson(dest);
-  }
-  if (target.copilot) writeVscodeSettings(dest);
-  writeManifest(dest, { addMcpJson, addMcpSettings, addJavaInstructions, forAntigravity: target.antigravity, forKiro: target.kiro, forClaude: target.claude });
-  console.log('✅ Install complete');
 }
 else {
   console.log('Usage: aigile <command> [flags]\n');
   console.log('Commands:');
   console.log('  init                Install .aigile-core and custom agents (default)');
   console.log('  install             Install/update .aigile-core and custom agents');
+  console.log('  update              Reinstall from this package; does not fetch packages or upgrade clients');
+  console.log('  uninstall --for-*   Remove unchanged owned outputs for explicit targets only');
+  console.log('  codex               Alias for install --for-codex');
   console.log('                      Target IDEs are auto-detected (.kiro/, .github/, .agent/, .claude/, or the running IDE)');
   console.log('                      unless you pass explicit --for-* flags');
   console.log('  bundle              Build dist/ text bundles and the Claude Code plugin (plugin/)');
   console.log('  status              Show installation manifest summary');
+  console.log('  doctor [--strict]   Inspect manifest, installed agents, MCP configs and workflows');
+  console.log('  workflow            create|validate|run|status|advance|list|graph|scaffold-result');
+  console.log('                      create NAME (--from TEMPLATE | --steps dev,dev,qa,devops | --definition FILE)');
+  console.log('                        [--snapshot-paths src,test,package.json]; validate NAME');
+  console.log('                        Templates: bug-resolve, feature-delivery, security-remediation, pr-quality-gate');
+  console.log('                      list [--host HOST]; graph NAME');
+  console.log('                      run NAME [--inputs FILE] [--issue KEY] [--host HOST]');
+  console.log('                      status RUNID [--host HOST]');
+  console.log('                      scaffold-result RUNID [--kind result|failure|approval] [--out FILE] [--host HOST]');
+  console.log('                      advance RUNID --result FILE [--approve STEP | --reconcile STEP] [--host HOST]');
+  console.log('                      advance RUNID --retry STEP --expected-revision INTEGER [--host HOST]');
+  console.log('                      --expected-revision may replace expectedRevision in result JSON; never supply both');
+  console.log('                      HOST: manual|copilot|codex|claude|kiro|antigravity; unmapped targets require manual delegation');
+  console.log('                      Status JSON: next.resultTemplate, failureTemplate, approvalTemplate, attemptId, codeSnapshot');
+  console.log('                      Use current templates with real artifact SHA256 values; approvals increment revision');
   console.log('  list:agents         List installed agent IDs');
   console.log('  skills:list         List AIgile skills and the curated community skill registry');
   console.log('  skills:add [ids]    Fetch community skills into .kiro/skills (no ids = recommended)');
   console.log('\nHelpful flags:');
   console.log('  --with-mcp          Include MCP config (.vscode/mcp.json, .kiro/settings/mcp.json, .mcp.json)');
+  console.log('  --copilot-mcp-host=vscode|native  Copilot MCP only; default vscode, native uses .mcp.json');
+  console.log('                     Requires --with-mcp or prior Copilot MCP opt-in; updates retain host');
   console.log('  --with-mcp-settings Include mock .vscode/settings.json MCP endpoints');
   console.log('  --with-java-instructions  Copy Java instructions into .github/instructions');
   console.log('  --for-copilot       Install for GitHub Copilot (.github/agents/)');
+  console.log('  --for-codex         Install native roles, namespaced skills and managed AGENTS.md');
+  console.log('                     Optional --with-mcp safely adds .codex/config.toml; no global install');
   console.log('  --for-antigravity   Install for Google Antigravity (.agent/ + GEMINI.md)');
   console.log('  --for-kiro          Install for Kiro (.kiro/agents/ + .kiro/steering/ + .kiro/skills/)');
   console.log('  --for-claude        Install for Claude Code (.claude/agents/ + .claude/skills/ + CLAUDE.md)');
   console.log('  --with-community-skills  Also fetch recommended community skills (Kiro, needs network)');
-  console.log('  --prune-legacy      Remove legacy artifacts (old .aigile, docs skeleton, chatmodes)');
+  console.log('  --prune-legacy      Unsupported: review legacy files manually to preserve user content');
   console.log('  --use-legacy-format Use deprecated .chatmode.md format instead of .agent.md');
   console.log('  --yes               Skip interactive component selection for install');
   console.log('\nExamples:');
@@ -4770,6 +4788,8 @@ else {
   console.log('  npx @mark-gozner/aigile-method install --for-claude --yes       # Claude Code only');
   console.log('  npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --for-kiro --for-claude --yes  # all platforms');
   console.log('  npx @mark-gozner/aigile-method init --with-mcp');
+  console.log('  npx @mark-gozner/aigile-method install --for-codex --for-copilot --yes');
+  console.log('  Codex: $aigile-codex-goal <objective>; native /goal is not overridden');
   console.log('\nFeatures:');
   console.log('  - GitHub Copilot: Custom agents (.agent.md), handoffs, runSubagent');
   console.log('  - Google Antigravity: Agent rules, workflows, GEMINI.md');

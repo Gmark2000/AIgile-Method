@@ -6,8 +6,8 @@ The AIgile Orchestrator is a **pure delegation controller** with **zero executio
 
 | Agent | Mode | Description |
 |---|---|---|
-| `aigile-orchestrator` | Automatic | Plans and delegates to specialist agents without per-step user confirmation. |
-| `aigile-manual-orchestrator` | Human-in-the-loop | Same delegation contract, but calls `askQuestions` to confirm with the user before every delegation and before starting any workflow. |
+| `AIgile Orchestrator` | Automatic | Plans and delegates to specialist agents without per-step user confirmation. |
+| `AIgile Manual Orchestrator` | Human-in-the-loop | Proposes the particular next delegation, ends the turn, and awaits explicit approval before acting. |
 
 ---
 
@@ -26,19 +26,21 @@ The orchestrator **plans, delegates, tracks, and synthesizes** — nothing else.
 | Resolve conflicts between specialist outputs | Make architecture, design, or product decisions |
 | Recommend next delegated step or declare completion | Execute any specialist task, no matter how "small" |
 
-**Every response must contain at least one delegation.** If you cannot determine where to route, use `askQuestions` to clarify — never guess.
+**Missing delegation is a STOP condition, not permission to execute.** If `agent`/`runSubagent` is unavailable, explain the blocker without reading, editing, running commands, or masquerading as a developer. A response may ask a question or report a blocker without delegating. Use a text checklist when todo is unavailable, and ask conversationally when askQuestions is unavailable.
+
+Manual mode always proposes the particular next agent, task, and deliverables, then ends the turn and waits for explicit approval. An overall goal or plan never grants blanket approval. Each named task in a parallel batch needs explicit approval; changed scope needs a new gate. Worker subagents return questions, consent requests, and escalation needs to their parent instead of waiting for unavailable tools or bypassing permissions.
 
 ---
 
 ## 2) Tools Reference
 
-The orchestrator has access to exactly three tools:
+The Copilot orchestrator declares exactly these grants; runtime availability still depends on the host:
 
 | Tool | Purpose | When to Use |
 |---|---|---|
 | `agent` (`runSubagent`) | Delegate a task to a specialist agent | Every task — this is the primary tool |
 | `todo` | Create and track multi-step workflow items | Any request with 2+ steps |
-| `askQuestions` | Ask the user for clarification | When routing cannot be determined from context |
+| `vscode/askQuestions` | Ask the user for clarification | When routing cannot be determined from context |
 
 No other tools are available. Any action requiring file I/O, terminal, search, or browser must be delegated.
 
@@ -65,6 +67,10 @@ agents:
 ```
 
 This list defines the orchestrator's delegation scope. It can only delegate to agents listed here. Each agent also has a corresponding `handoffs` entry with a label, prompt template, and context guidance.
+
+Names are case-sensitive installed display names, not source filenames. `agents: []` disables delegation; an explicit allowlist can override a worker's `disable-model-invocation: true`. Delegation also requires the `agent` tool or supported granular `agent/runSubagent` grant. Subagents do not have the built-in ask/todo tools. Nested delegation is gated by `chat.subagents.allowInvocationsFromSubagents`; AIgile does not enable it. A worker that needs another specialist returns a brief to its parent. The developer's sequential-thinking tool is optional; a written plan is the fallback.
+
+Contract tests resolve generated allowlists and handoffs against the packaged canonical agents and verify unchanged coordinator grants. They are static checks, not proof of live model behavior. References: [VS Code subagents](https://code.visualstudio.com/docs/agents/run/subagents), [Agent Host](https://code.visualstudio.com/docs/agents/concepts/agent-host), checked September 9, 2026.
 
 ---
 
@@ -113,7 +119,7 @@ Use `askQuestions` when:
 - Critical constraints are missing (e.g., target language, scope boundaries)
 - The request could be interpreted in fundamentally different ways
 
-Do **not** use `askQuestions` as a stall tactic. If you can reasonably infer the routing, delegate immediately.
+In automatic mode, delegate when routing is clear and delegation is available. Manual mode must still end the turn and await explicit approval of the proposed delegation. Use conversational questions if the tool is unavailable; workers return questions to their parent.
 
 ---
 

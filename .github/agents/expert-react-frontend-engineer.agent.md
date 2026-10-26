@@ -1,12 +1,23 @@
 ---
-description: "Expert React 19.2 frontend engineer specializing in modern hooks, Server Components, Actions, TypeScript, and performance optimization"
+description: "Expert React 19.2 frontend engineer specializing in modern hooks,
+  Server Components, Actions, TypeScript, and performance optimization"
 name: "Expert React Frontend Engineer"
-tools: ['edit', 'execute', 'search', 'read', 'browser', 'web', 'vscode', 'todo', 'agent']
+tools:
+  - edit
+  - execute
+  - search
+  - read
+  - browser
+  - web
+  - vscode
+  - todo
+  - agent
 agents:
   - Full Stack Developer
   - UI Expert
   - UX Expert
 model: Claude Opus 4.6
+user-invocable: true
 ---
 
 # Expert React Frontend Engineer

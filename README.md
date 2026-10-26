@@ -2,7 +2,7 @@
 
 A pragmatic, agent-driven agile method designed for IDE-native AI assistants. It ships with ready-to-run agents, executable tasks, MCP server wiring, and docs/templates to bootstrap product delivery.
 
-Supported platforms: **Claude Code**, **GitHub Copilot**, **Google Antigravity**, and **Kiro** — one installer, the same agent team everywhere.
+Supported platforms: **OpenAI Codex**, **Claude Code**, **GitHub Copilot**, **Google Antigravity**, and **Kiro**. One installer adapts the same team to each client's native assets.
 
 Roles covered: Analyst, Architect, Dev, React Engineer, DevOps, Security, QA, Automation Tester, PM, PO, SM, UX-Expert, UI-Expert, Code Tour, plus two orchestrators (automatic and human-in-the-loop).
 
@@ -14,23 +14,83 @@ Roles covered: Analyst, Architect, Dev, React Engineer, DevOps, Security, QA, Au
 
 Prereqs: Node.js 18+ (20+ recommended)
 
+Release status: the Codex/Copilot changes described here are local source changes, not yet published; the package version remains **1.5.0**. The public `npx` examples describe these features when released, not availability in the current npm release. To try this implementation now, run `node C:/Users/mark.gozner/GM/AI/public-req2code/tools/cli.js install --for-codex --for-copilot --yes` from your target project (adjust the checkout path).
+
 Install AIgile into your project:
 
 ```bash
 npx @mark-gozner/aigile-method install
 ```
 
-The installer detects which IDEs your project already uses (`.kiro/`, `.github/`, `.agent/`, `.claude/` or `CLAUDE.md`, or being run from a Kiro or Claude Code session) and pre-selects those targets. In a Kiro or Claude Code workspace you get that platform's agent team, context, and skills without passing any flags. Projects with none of those markers default to GitHub Copilot, as before.
+The installer detects `.codex/`, `.kiro/`, `.github/`, `.agent/`, `.claude/`, `GEMINI.md`, `CLAUDE.md`, and Kiro/Claude session signals. Shared `AGENTS.md` or `.agents/` alone does not select Codex. Explicit target flags win; projects without markers default to Copilot. Unknown `--for-*` flags fail.
 
-The interactive installer asks which platforms to target: Claude Code, GitHub Copilot, Google Antigravity, Kiro (any combination). You can also skip the prompt with flags:
+The interactive installer offers all five platforms in any combination. You can skip selection with flags:
 
 ```bash
+npx @mark-gozner/aigile-method install --for-codex --yes         # OpenAI Codex only
 npx @mark-gozner/aigile-method install --for-claude --yes        # Claude Code only
 npx @mark-gozner/aigile-method install --for-copilot --yes       # GitHub Copilot only
 npx @mark-gozner/aigile-method install --for-antigravity --yes   # Antigravity only
 npx @mark-gozner/aigile-method install --for-kiro --yes          # Kiro only
 npx @mark-gozner/aigile-method install --for-copilot --for-antigravity --for-kiro --for-claude --yes
 ```
+
+### Codex and Copilot Workflows
+
+Codex gets native `.codex/agents/aigile-<role>.toml` roles, discoverable `.agents/skills/aigile-codex-*/SKILL.md` skills, and a managed root `AGENTS.md` block pointing to `.aigile-core/`. No configuration file is needed for role discovery. `codex` is an installer alias; `init`, `install`, `update`, and `auth-install` accept `--for-codex`. Integration lifecycle commands are workspace-local and reject `--global`.
+
+In Codex, invoke `$aigile-codex-goal <objective>` to clarify acceptance, research, design, implement an approved work item, and request independent QA. Task elicitation and human approval checkpoints remain mandatory. Tasks, prompts (including nested prompts), workflows, reusable skills and reference libraries are exposed through namespaced skill adapters.
+
+Native Codex **`/goal` is not overridden**. On the documented CLI baseline **0.153.4**, bare `/goal` displays the goal, `/goal <objective>` sets it, and `edit`, `pause`, `resume`, `clear` are controls. `status` and `view` are objective text, not controls. The AIgile skill cannot programmatically set persistent goal state. Older-client support, IDE `/goal` parity, runtime discovery and delegation require separate client QA; the installer does not install or upgrade Codex.
+
+On that CLI baseline, the native `goals` feature is stable and enabled by default. To explicitly enable it for one launch, run `codex --enable goals` (equivalent to `codex -c features.goals=true`), then use `/goal` inside the CLI. This launch override does not write persistent configuration; the installer never enables it automatically. If native goals are unavailable, use `$aigile-codex-goal <objective>` as the portable workflow, without native persistent goal state or a promise of IDE `/goal` support. Verified against official tagged source: [Goals feature](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/features/src/lib.rs#L1544), [CLI enable override](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/cli/src/main.rs), [goal dispatch](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/tui/src/chatwidget/slash_dispatch.rs).
+
+Copilot keeps extension-host prompt files and adds `.github/skills/aigile-copilot-*` adapters, including `/aigile-copilot-goal`, for skill-capable sessions such as Agent Host. Native `.agent.md` definitions take precedence; tool arrays retain granular grants, invocation metadata uses `user-invocable`, and prompt metadata uses `agent`. This does not promise full Agent Host feature parity.
+
+Copilot CLI native `/goal [OBJECTIVE]` is an alias for `/autopilot`: it starts or refocuses autonomous work, inferring intent from context when no objective is supplied. These are not Codex goal controls. AIgile does not register an editor-native `/goal`; use `/aigile-copilot-goal <objective>` for the portable delivery workflow.
+
+Skills retain typed `user-invocable`, `disable-model-invocation`, and `argument-hint` metadata, including explicit `false`. Long skill names and nested resources share one resolved directory. Prompt adapters preserve the source agent, tool boundary, and model preference in their execution instructions. Required agent context or permissions that cannot be honored cause a stop and referral to the native prompt in an extension-host session. Optional model hints may fall back with disclosure. Missing `${...}` inputs and `#file:` context must be requested, while literal examples remain literal. Prompt tool restrictions never become skill `allowed-tools`, which would auto-approve tools in Copilot CLI.
+
+Portable prose conversion protects indented and fenced code after repeated blockquote and list prefixes, including mixed nesting and blank continuations. Literal lines retain their original bytes. This is a conservative prefix recognizer, not a complete CommonMark parser: ambiguous tab padding and four-space indentation are left untranslated, and an unmatched fence protects the remaining text. It does not resolve every container lifetime or lazy paragraph continuation; ordinary unambiguous prose still converts.
+
+For Copilot MCP, the default opt-in remains `--for-copilot --with-mcp` for VS Code. Add `--copilot-mcp-host=native` for workspace `.mcp.json` instead. The host is remembered on updates; no opt-in means no MCP changes on a fresh install. Native output requires explicit catalog tool filters; the current catalog lacks them, so its entries are skipped with diagnostics rather than inventing unrestricted filters. See [MCP host requirements and lifecycle](docs/mcp-servers.md#copilot-mcp-hosts).
+
+Documentation baseline checked September 9, 2026: [VS Code 1.136](https://code.visualstudio.com/updates/v1_136), released September 2, including the 1.136.2 security update; [Agent Host](https://code.visualstudio.com/docs/agents/concepts/agent-host); [skills](https://code.visualstudio.com/docs/agent-customization/agent-skills); [prompt tool priority](https://code.visualstudio.com/docs/agent-customization/prompt-files); [subagents](https://code.visualstudio.com/docs/agents/run/subagents); [Copilot CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference). Plugin 1.0 GA migration is deferred; existing plugin output remains supported. Preview hooks, forked skill context, user-profile migration, and automatic nested-delegation settings are out of scope.
+
+Installer tests validate generated contracts and temporary-workspace lifecycle, not live agent execution. Before optional discovery, use a temporary `COPILOT_HOME` with `COPILOT_AUTO_UPDATE=false` and check `copilot --version` and `copilot --help`. Use `copilot plugins list --json` only when that version's subcommand help advertises the command and option. Independent QA found CLI 1.0.4 rejects this option as `UNKNOWNOPTION`; the latest documentation is not proof of installed capability. Otherwise review generated files manually. Live-session `/env` is a user-run fallback in an already authorized session, not verified here; custom agents and session hooks are not covered by `plugins list`. Do not start an autonomous session or live MCP server just to validate installation.
+
+### Custom Deterministic Workflows
+
+The local CLI supports `workflow create`, `validate`, `run`, `status`, and `advance`. Start with `aigile workflow create bug-resolve-wf --from bug-resolve`, then `aigile workflow run bug-resolve-wf --issue PROJ-123`. Use `--steps pm,dev,qa,devops` or `--definition FILE` for custom sequences, or ask **Workflow Creator** to author and validate one. See [the complete workflow guide](docs/workflows.md) for checkout commands, strict YAML, structured inputs, result/approval templates, retries and reconciliation.
+
+In VS Code, select **Workflow Creator** from the Chat agent picker; its workspace definition is `.github/agents/workflow-creator.agent.md`. It creates and validates definitions, shows a preview and waits for approval before handing off execution. Coordinators route to this exact agent name.
+
+New definitions live in `.aigile-workflows/custom/`; run state stays in `.aigile-workflows/runs/`, outside installer ownership. Name lookup prefers custom definitions, then legacy `.aigile-workflows/NAME.yaml`, then bundled templates; validation/status show the selected source path. Existing definitions are never silently moved or overwritten. Scheduling is deterministic; agent work is not. The CLI never executes agents or external actions. Hash-backed evidence and approvals are attestations, not proof of test execution or authentic consent. The bug template gates scope before development, independent snapshot-bound QA and an explicitly scoped draft PR action. These changes are unreleased and do not override native `/goal`.
+
+For a custom two-writer pipeline: `aigile workflow create delivery --steps dev,dev,qa,devops --snapshot-paths lib`, then `aigile workflow validate delivery` and `aigile workflow run delivery --host copilot`. Use existing code paths (`src` is the default), complete each current worker brief, refresh `workflow status RUNID`, fill its `next.resultTemplate` with actual evidence paths/hashes, and submit `workflow advance RUNID --result FILE`. Repeat until completed; no publication is authorized by this scaffold. Retry requires `--retry STEP --expected-revision INTEGER`. The [workflow guide](docs/workflows.md) includes every result, approval and reconciliation command.
+
+Code-writing steps explicitly declare `writesCode: true` (only with code binding and evidence guard), independent of role. Nonwriters and QA bind to the latest contribution; any later writer invalidates publication review eligibility, even for identical bytes. Saved-state consistency is validated on read and write. Windows local NTFS commits preserve exact owner/group/DACL and inheritance via protected staging; unsupported preservation fails closed. POSIX preserves owner/group/mode or refuses. These are single-file guarantees, not a sandbox or proof of external actions.
+
+New workflow release assets are explicitly selected by the synchronizer even before Git staging. Unrelated untracked agents remain excluded. The real-root/staged/extracted package gate also runs workflow CLI tests.
+
+### Safe Updates and Removal
+
+Installation renders into staging, checks conflicts, and records hashes and target owners in a v2 manifest. Reinstall is byte-stable; unchanged owned files can be updated. Modified or unowned conflicting files are preserved and cause a nonzero result, even with `--yes`. Back up and move each reported conflict, or restore its last generated contents, before retrying. Legacy count-only manifests and identical bytes do not establish ownership: matching pre-existing files stay unowned and are never deleted by target removal.
+
+Commit failures roll back created, updated and deleted files together with the manifest. Originals are backed up before commit; if restoration fails, the error lists retained `.bak` files for manual recovery. Preserve those backups and restore before retrying. This is recoverable rollback, not full filesystem atomicity or automatic crash recovery. Concurrent changes detected during rollback are not overwritten.
+
+On POSIX, replacements and rollback/uninstall rewrites preserve existing ordinary permission bits. New managed files (including config, roles and manifests) use `0600`; backups keep only the original owner's read/write bits, never group/other access. Private stage files receive their destination mode before rename, independently of umask. This does not preserve ownership, ACLs or special mode bits. On Windows, writes request restrictive modes and read-only destinations are refused without clearing the attribute, but Node mode bits do not enforce POSIX privacy or preserve Windows ACLs. Use an appropriately restricted destination directory; Windows ACL preservation is not guaranteed or tested. Real POSIX mode tests are conditional and are skipped on Windows.
+
+```bash
+npx @mark-gozner/aigile-method update --for-codex --for-copilot
+npx @mark-gozner/aigile-method uninstall --for-codex
+```
+
+`update` uses the executing package, without fetching a package or upgrading clients. `uninstall` requires explicit targets and removes only unchanged owned outputs; edited files and resources shared with another target remain. Codex managed blocks preserve surrounding text. Copilot MCP uses structured per-server/input ownership, preserving unrelated JSON keys and servers (not whitespace). Other conflicting shared configurations are conservatively reported rather than overwritten. Automatic legacy pruning is disabled. Installation no longer changes consumer package scripts or VS Code delegation settings automatically.
+
+The v2 target ledger is authoritative for implicit installs and updates, including an empty ledger after uninstall. Leftover client directories do not reactivate removed targets. Legacy installations without a v2 ledger still use client detection; explicitly pass `--for-*` to add a target.
+
+Maintainer checks: `npm test` runs unit and isolated CLI tests. `npm run sync:clients` refreshes canonical metadata, mirrors and release bundles from staged inputs and generates the explicit `package.json` release-file allowlist. Review this list when adding release assets; new canonical agents must be tracked in Git. Untracked source agents and stale generated extras remain on disk but are not packaged. `npm run check:clients` checks drift. Supported release packaging is `npm pack` from a dependency-installed Git checkout: `prepack` synchronizes and runs the package gate. `npm run test:package` compares the staged gate with actual root `npm pack --dry-run --ignore-scripts --json` file paths and source bytes, packs the root with scripts disabled to avoid recursion, and reruns CLI tests from the extracted tarball in a path with spaces. The checked-in allowlist also constrains `--ignore-scripts` packaging, but bypassing scripts skips freshness validation. Git, tar and npm are required; set `AIGILE_NPM_CLI` if npm is not next to Node. No publishing or live MCP calls occur.
 
 ### Claude Code plugin (no npm install)
 
@@ -56,11 +116,12 @@ npx @mark-gozner/aigile-method bundle
 What this gives you in the project:
 - `.aigile-core/` – roles, tasks, templates, checklists, data, workflows
 - `.github/agents/` – GitHub Copilot custom agents (`--for-copilot`)
+- `.codex/agents/`, `.agents/skills/aigile-codex-*/`, `AGENTS.md` - Codex roles, skills and managed guidance (`--for-codex`)
 - `.agent/rules/`, `.agent/workflows/`, `GEMINI.md` – Google Antigravity (`--for-antigravity`)
 - `.kiro/agents/`, `.kiro/steering/`, `.kiro/skills/` – Kiro custom agents, steering, and Agent Skills (`--for-kiro`)
 - `.claude/agents/`, `.claude/skills/`, `CLAUDE.md`, `.claude/settings.json` – Claude Code subagents, skill workflows, and project context (`--for-claude`)
 - `.vscode/mcp.json`, `.kiro/settings/mcp.json`, or `.mcp.json` – only if you pass `--with-mcp`
-- `.aigile-manifest.json` – manifest summary
+- `.aigile-manifest.json` - owned-file hashes, target owners and per-client capabilities
 
 To update later (e.g., after a version bump):
 ```bash
@@ -99,8 +160,8 @@ Every supported platform gets the full AIgile agent team out of the box, generat
 - Specialists inherit the full session toolset, including whatever MCP servers you have configured — only the two orchestrators are restricted, to `Read, Glob, Grep, Agent, TodoWrite, AskUserQuestion, WebFetch, WebSearch`, so "delegation-only" is enforced by the toolset and not just by the prompt
 - Role-relevant AIgile skills are preloaded per agent via the `skills:` frontmatter field
 - Copilot/VS Code tool names in the source definitions are translated to their Claude Code equivalents (`runSubagent` → `Agent`, `vscode_askQuestions` → `AskUserQuestion`, `manage_todo_list` → `TodoWrite`)
-- `CLAUDE.md` gets an AIgile section between `<!-- AIGILE:START -->` / `<!-- AIGILE:END -->` markers, so re-running the installer never disturbs anything you wrote around it
-- `.claude/settings.json` is merged, not overwritten — the installer only adds read permissions for `.aigile-core/`
+- `CLAUDE.md` includes AIgile project context; pre-existing or edited conflicting files are preserved and reported for manual resolution
+- `.claude/settings.json` supplies read permissions for `.aigile-core/`; user settings are never silently replaced
 - `.mcp.json` when combined with `--with-mcp`
 
 **GitHub Copilot** (`.github/agents/*.agent.md`)
@@ -121,7 +182,7 @@ Every supported platform gets the full AIgile agent team out of the box, generat
 - `.kiro/skills/` — AIgile [Agent Skills](https://kiro.dev/docs/skills/) (see below)
 - `.kiro/settings/mcp.json` when combined with `--with-mcp`
 
-Each generated agent keeps a collapsible appendix with the original agent source for transparency. If an agent stops behaving according to its role, re-run the installer to regenerate it.
+Generated agents retain source references or appendices for transparency. Restore an edited output to its last generated content before reinstalling, or back it up and move it aside; reinstall never silently discards edits.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: 'Prompt for generating Confluence documentation in Markdown format.'
-mode: 'agent'
+agent: agent
 ---
 
 Important: This prompt expects the host environment to provide a tool named `confluence_get_page` (an Atlassian MCP integration) that accepts a Confluence space key and page title or page id and returns the page content and metadata. If `confluence_get_page` is not available in the execution environment, STOP and report to the user that the tool is unavailable and that network/MCP access is required.

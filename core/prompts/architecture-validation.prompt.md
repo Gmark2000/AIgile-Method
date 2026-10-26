@@ -1,6 +1,6 @@
 ---
 description: 'Validate and document the repository architecture and technology consistency.'
-mode: 'agent'
+agent: agent
 ---
 
 Validate and document the repository architecture and technology consistency across the entire project.

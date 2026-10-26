@@ -1,10 +1,19 @@
 ---
-description: 'Expert agent for creating and maintaining VSCode CodeTour files with comprehensive schema support and best practices'
+description: 'Expert agent for creating and maintaining VSCode CodeTour files
+  with comprehensive schema support and best practices'
 name: 'VSCode Tour Expert'
-tools: ['edit', 'execute', 'search', 'read', 'vscode', 'todo', 'agent']
+tools:
+  - edit
+  - execute
+  - search
+  - read
+  - vscode
+  - todo
+  - agent
 agents:
   - Full Stack Developer
 model: Claude Opus 4.6
+user-invocable: true
 ---
 
 # VSCode Tour Expert 🗺️

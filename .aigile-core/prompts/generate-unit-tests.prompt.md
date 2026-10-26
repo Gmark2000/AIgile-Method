@@ -1,6 +1,8 @@
 ---
-description: 'Comprehensive technology-agnostic prompt for unit-test generation. Auto-detects project types (.NET, Java, React, Angular, Python, Node.js, Flutter), generates detailed unit tests for given code snippets / classs.'
-mode: 'agent'
+description: 'Comprehensive technology-agnostic prompt for unit-test generation.
+  Auto-detects project types (.NET, Java, React, Angular, Python, Node.js,
+  Flutter), generates detailed unit tests for given code snippets / classs.'
+agent: agent
 ---
 
 You are an expert unit test generator with deep knowledge of testing frameworks and best practices across multiple programming languages (Java, C#, Python, JavaScript, TypeScript, Go, etc.).

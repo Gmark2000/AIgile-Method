@@ -1,0 +1,77 @@
+schemaVersion: 1
+workflow:
+  id: feature-delivery
+  name: Feature Delivery
+  description: End-to-end feature specification, architecture design, implementation, independent QA verification, security audit, and authorized draft PR attestation.
+  inputs:
+    feature:
+      type: string
+      required: true
+      description: Feature identifier, user story key, or requirement summary.
+    requirements-doc:
+      type: file
+      required: false
+      description: Optional workspace-local requirements or PRD document.
+  snapshotPaths: [src]
+  sequence:
+    - id: story
+      agent: po
+      instructions: Read the feature input and optional requirements-doc. Produce a story specification and testable acceptance criteria. Return artifacts for review.
+      requires: ['input:feature']
+      creates: [story-spec, acceptance-criteria]
+      capabilities: [requirements-structuring]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: none
+    - id: design
+      agent: architect
+      instructions: Design the technical implementation plan and component boundaries for the story specification and acceptance criteria.
+      requires: [story-spec, acceptance-criteria]
+      creates: [architecture-plan]
+      capabilities: [architecture-design]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: none
+    - id: implement
+      agent: dev
+      instructions: Wait for explicit scope approval. Implement only approved feature changes according to the architecture plan, run developer tests if authorized, and record actual commands and results. Do not push or publish.
+      requires: [story-spec, acceptance-criteria, architecture-plan]
+      creates: [change-summary, developer-tests]
+      capabilities: [workspace-edit, authorized-local-tests]
+      guard: evidence
+      approval: scope
+      maxRetries: 2
+      binding: code
+      writesCode: true
+    - id: verify
+      agent: qa
+      instructions: Independently inspect and test the current code snapshot against acceptance criteria and architecture plan. Submit failed on defects and request retry of implement.
+      requires: [acceptance-criteria, change-summary, developer-tests]
+      creates: [qa-report]
+      capabilities: [independent-review, authorized-local-tests]
+      guard: reviewed-code
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: audit
+      agent: security
+      instructions: Audit the reviewed code snapshot, architecture plan, and QA report for security regressions, boundary violations, or unsafe defaults. Do not modify code.
+      requires: [architecture-plan, change-summary, qa-report]
+      creates: [security-report]
+      capabilities: [security-review]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: draft-pr
+      agent: devops
+      instructions: Do nothing externally until matching QA pass, security report, and explicit publication approval specify repository, base, head, proposed changes, and branch push scope. Verify actual host permission and provider availability before creating one draft PR.
+      requires: [change-summary, qa-report, security-report]
+      creates: [pr-record]
+      capabilities: [authorized-branch-push, authorized-draft-pr]
+      guard: qa-pass
+      approval: publish
+      maxRetries: 2
+      binding: code

@@ -1,6 +1,6 @@
 ---
 name: code-tour
-description: "Expert agent for creating and maintaining VSCode CodeTour files with comprehensive schema support and best practices"
+description: "Expert agent for creating and maintaining VSCode CodeTour files"
 color: cyan
 ---
 

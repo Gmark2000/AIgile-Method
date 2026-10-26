@@ -1,6 +1,6 @@
 ---
 name: expert-react-frontend-engineer
-description: "Expert React 19.2 frontend engineer specializing in modern hooks, Server Components, Actions, TypeScript, and performance optimization"
+description: "Expert React 19.2 frontend engineer specializing in modern hooks,"
 skills: [story-delivery]
 color: green
 ---

@@ -1,0 +1,42 @@
+schemaVersion: 1
+workflow:
+  id: pr-quality-gate
+  name: Pull Request Quality Gate
+  description: Deterministic read-only architecture, security, and independent QA review gate for a code snapshot.
+  inputs:
+    target:
+      type: string
+      required: true
+      description: Branch, pull request identifier, or review scope label.
+  snapshotPaths: [src]
+  sequence:
+    - id: architecture-check
+      agent: architect
+      instructions: Inspect the current code snapshot for architectural conformance, modularity, and boundary discipline. Record findings in architecture-review.
+      requires: ['input:target']
+      creates: [architecture-review]
+      capabilities: [architecture-review]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: security-check
+      agent: security
+      instructions: Inspect the current code snapshot and architecture review for security risks, injection vectors, and permission discipline. Record findings in security-review.
+      requires: [architecture-review]
+      creates: [security-review]
+      capabilities: [security-review]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: quality-verdict
+      agent: qa
+      instructions: Independently verify the code snapshot, architecture review, and security review. Record pass/fail quality gate verdict and evidence in quality-gate-report.
+      requires: [architecture-review, security-review]
+      creates: [quality-gate-report]
+      capabilities: [independent-review, authorized-local-tests]
+      guard: reviewed-code
+      approval: none
+      maxRetries: 2
+      binding: code

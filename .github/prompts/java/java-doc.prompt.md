@@ -1,7 +1,8 @@
 ---
-mode: 'agent'
-tools: ['changes', 'codebase', 'edit/editFiles', 'problems']
-description: 'Ensure that Java types are documented with Javadoc comments and follow best practices for documentation.'
+tools: [ 'changes', 'codebase', 'edit/editFiles', 'problems' ]
+description: 'Ensure that Java types are documented with Javadoc comments and
+  follow best practices for documentation.'
+agent: agent
 ---
 
 # Java Documentation (Javadoc) Best Practices

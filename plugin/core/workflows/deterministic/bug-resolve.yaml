@@ -1,0 +1,57 @@
+schemaVersion: 1
+workflow:
+  id: bug-resolve
+  name: Bug Resolution
+  description: Approved bug scope, implementation, independent QA and explicitly authorized draft PR attestation.
+  inputs:
+    issue:
+      type: string
+      required: true
+      description: Jira issue key or user-assigned bug identifier.
+    issue-export:
+      type: file
+      required: false
+      description: Optional workspace-local issue export instead of authorized Jira access.
+  snapshotPaths: [src]
+  sequence:
+    - id: scope
+      agent: pm
+      instructions: Read the supplied issue-export if present; otherwise request authorized Jira read capability for this issue only. Stop if neither exists. Produce bug brief, reproduction and acceptance artifacts. No credentials in artifacts or inputs. Return scope for human approval before development.
+      requires: ['input:issue']
+      creates: [bug-brief, reproduction, acceptance]
+      capabilities: [authorized-jira-read-or-local-export]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: none
+    - id: fix
+      agent: dev
+      instructions: Wait for explicit scope approval. Implement only approved changes, run developer tests if authorized and record actual commands/results in evidence. Do not push, create a branch or publish. Return blockers to the parent when execution is unavailable.
+      requires: [bug-brief, reproduction, acceptance]
+      creates: [change-summary, developer-tests]
+      capabilities: [workspace-edit, authorized-local-tests]
+      guard: evidence
+      approval: scope
+      maxRetries: 2
+      binding: code
+      writesCode: true
+    - id: review
+      agent: qa
+      instructions: Independently inspect and test the current code snapshot against acceptance. Record actual checks and pass/fail evidence, not just a label. Submit failed on defects; request explicit retry of fix for remediation. Do not modify reviewed code or accept developer self-certification as QA.
+      requires: [acceptance, change-summary, developer-tests]
+      creates: [qa-report]
+      capabilities: [independent-review, authorized-local-tests]
+      guard: reviewed-code
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: draft-pr
+      agent: devops
+      instructions: Do nothing externally until matching QA pass and explicit publication approval specify repository, base, head, proposed changes and branch push scope. Verify actual host permission and provider availability; approval is not a tool grant. Only then may an authorized worker push that head and create one draft PR. Record URL/head/base. If outcome is uncertain, stop and reconcile existing remote state before any repeat. Never merge or publish automatically.
+      requires: [change-summary, qa-report]
+      creates: [pr-record]
+      capabilities: [authorized-branch-push, authorized-draft-pr]
+      guard: qa-pass
+      approval: publish
+      maxRetries: 2
+      binding: code

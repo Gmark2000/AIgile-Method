@@ -1,0 +1,57 @@
+schemaVersion: 1
+workflow:
+  id: security-remediation
+  name: Security Remediation
+  description: Security finding triage, scoped remediation, independent QA regression verification, and explicitly authorized draft PR attestation.
+  inputs:
+    finding:
+      type: string
+      required: true
+      description: Security advisory, CVE identifier, SonarQube hotspot, or finding key.
+    finding-report:
+      type: file
+      required: false
+      description: Optional workspace-local vulnerability or scanner report.
+  snapshotPaths: [src]
+  sequence:
+    - id: triage
+      agent: security
+      instructions: Analyze the finding and optional finding-report. Produce a scoped remediation plan and security acceptance criteria without embedding secrets.
+      requires: ['input:finding']
+      creates: [remediation-plan, security-acceptance]
+      capabilities: [security-triage]
+      guard: evidence
+      approval: none
+      maxRetries: 2
+      binding: none
+    - id: remediate
+      agent: dev
+      instructions: Wait for explicit scope approval. Implement the security remediation and regression tests, and record test execution results. Do not push or publish.
+      requires: [remediation-plan, security-acceptance]
+      creates: [patch-summary, regression-tests]
+      capabilities: [workspace-edit, authorized-local-tests]
+      guard: evidence
+      approval: scope
+      maxRetries: 2
+      binding: code
+      writesCode: true
+    - id: verify-fix
+      agent: qa
+      instructions: Independently verify that the current code snapshot satisfies security acceptance criteria and causes no regressions. Submit failed on defects.
+      requires: [security-acceptance, patch-summary, regression-tests]
+      creates: [qa-verification]
+      capabilities: [independent-review, authorized-local-tests]
+      guard: reviewed-code
+      approval: none
+      maxRetries: 2
+      binding: code
+    - id: draft-pr
+      agent: devops
+      instructions: Do nothing externally until matching QA pass and explicit publication approval specify repository, base, head, proposed changes, and branch push scope. Record draft PR URL, base, and head.
+      requires: [patch-summary, qa-verification]
+      creates: [pr-record]
+      capabilities: [authorized-branch-push, authorized-draft-pr]
+      guard: qa-pass
+      approval: publish
+      maxRetries: 2
+      binding: code

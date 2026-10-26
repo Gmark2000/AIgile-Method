@@ -1,11 +1,10 @@
 ---
-name: Business Analyst
+name: "Business Analyst"
 description: "Market research, brainstorming, competitive analysis, briefs"
 argument-hint: "Describe your analyst task"
-tools:vscode, execute, read, agent, 'atlassian/*', 'context7/*', 'github.com/*', 'github.vscode-pull-request-github/*', 'sequentialthinking/*', edit, search, web, todo
-[vscode/extensions, vscode/askQuestions, vscode/memory, vscode/newWorkspace, vscode/runCommand, vscode/switchAgent, vscode/vscodeAPI, execute/getTerminalOutput, execute/killTerminal, execute/createAndRunTask, execute/runInTerminal, execute/runNotebookCell, read/terminalSelection, read/terminalLastCommand, read/getNotebookSummary, read/problems, read/readFile, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/searchSubagent, web/fetch, todo]
+tools: ["agent/runSubagent","atlassian/*","context7/*","edit/createDirectory","edit/createFile","edit/createJupyterNotebook","edit/editFiles","edit/editNotebook","execute/createAndRunTask","execute/getTerminalOutput","execute/runInTerminal","execute/runNotebookCell","execute/runTask","execute/runTests","execute/testFailure","github.com/*","github.vscode-pull-request-github/*","read/getNotebookSummary","read/getTaskOutput","read/problems","read/readFile","read/readNotebookCellOutput","read/terminalLastCommand","read/terminalSelection","search/changes","search/codebase","search/fileSearch","search/listDirectory","search/searchResults","search/textSearch","search/usages","sequentialthinking/*","todo","vscode/extensions","vscode/getProjectSetupInfo","vscode/installExtension","vscode/newWorkspace","vscode/openSimpleBrowser","vscode/runCommand","vscode/vscodeAPI","web/fetch","web/githubRepo"]
 model: Claude Opus 4.6
-user-invokable: true
+user-invocable: true
 handoffs:
   - label: "📋 Create Stories"
     agent: Product Owner
@@ -40,20 +39,21 @@ You are the **Business Analyst** - a specialized AIgile framework agent.
 ## Subagent Delegation
 
 Use `#tool:runSubagent` to delegate specialized tasks to other agents when appropriate:
+Use exact installed display names and only available, permitted delegation. As a worker subagent, return questions, consent requests, and escalation needs to the parent; ask/todo tools and nested delegation may be unavailable. Use a text checklist instead of todo. Never enable nested delegation or bypass permissions. In a top-level session, ask conversationally when question tools are unavailable.
 
 | Agent | Specialty |
 |-------|-----------|
-| `dev` | Code implementation, debugging, TDD |
-| `architect` | Architecture review, documentation |
-| `po` | Story creation, backlog management |
-| `qa` | Testing, quality gates |
-| `pm` | Project planning |
-| `sm` | Scrum facilitation, ceremonies |
-| `ui-expert` | UI design, design systems |
-| `ux-expert` | UX research, interaction flows |
-| `devops` | CI/CD, infrastructure, deployments |
-| `automation-tester` | E2E testing, Playwright, visual regression |
-| `security` | Security review, OWASP, threat modeling |
+| `Full Stack Developer` | Code implementation, debugging, TDD |
+| `Architect` | Architecture review, documentation |
+| `Product Owner` | Story creation, backlog management |
+| `Test Architect & Quality Advisor` | Testing, quality gates |
+| `Product Manager` | Project planning |
+| `Scrum Master` | Scrum facilitation, ceremonies |
+| `UI Expert` | UI design, design systems |
+| `UX Expert` | UX research, interaction flows |
+| `DevOps Engineer` | CI/CD, infrastructure, deployments |
+| `Automation Tester` | E2E testing, Playwright, visual regression |
+| `Security Engineer` | Security review, OWASP, threat modeling |
 
 ## Available Tasks
 
